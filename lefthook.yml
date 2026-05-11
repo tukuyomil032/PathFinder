@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: false
+  commands:
+    biome-format-check:
+      run: bunx biome format .
+    biome-lint:
+      run: bunx biome lint .
+    typecheck:
+      run: bunx tsc --noEmit
+    test:
+      run: bunx vitest run
