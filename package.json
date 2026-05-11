@@ -1,0 +1,27 @@
+{
+  "name": "dlsite-rj-preview-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/bot/index.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bunx vitest run",
+    "lint": "bunx biome lint .",
+    "format": "bunx biome format .",
+    "check": "bun run format && bun run lint && bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "cheerio": "^1.1.2",
+    "discord.js": "^14.25.1",
+    "dotenv": "^17.2.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.6",
+    "@types/node": "^24.10.1",
+    "lefthook": "^1.13.6",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8"
+  }
+}
