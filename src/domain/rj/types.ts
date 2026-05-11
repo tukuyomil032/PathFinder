@@ -1,0 +1,20 @@
+export type DLSiteWork = {
+  id: string;
+  title: string;
+  url: string;
+  makerName: string | null;
+  price: string | null;
+  salePrice: string | null;
+  ageCategory: string | null;
+  releaseDate: string | null;
+  rating: string | null;
+  thumbnailUrl: string | null;
+  tags: string[];
+  isAdult: boolean;
+  author?: string | null;
+  scenario?: string | null;
+  illustration?: string | null;
+  voiceActors?: string[];
+  fileFormat?: string | null;
+  fileSize?: string | null;
+};
