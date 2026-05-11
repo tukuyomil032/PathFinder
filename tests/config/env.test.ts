@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import { parseEnv } from "../../src/config/env";
+
+describe("parseEnv", () => {
+  it("accepts required variables", () => {
+    const result = parseEnv({
+      DISCORD_BOT_TOKEN: "token",
+      DISCORD_CLIENT_ID: "client-id",
+      CACHE_TTL_MS: "60000",
+      DLSITE_USER_AGENT: "test-agent",
+      NSFW_STRICT_MODE: "true",
+    });
+
+    expect(result.CACHE_TTL_MS).toBe(60000);
+    expect(result.NSFW_STRICT_MODE).toBe(true);
+  });
+
+  it("fails fast when required variables are missing", () => {
+    expect(() =>
+      parseEnv({
+        DISCORD_BOT_TOKEN: "",
+        CACHE_TTL_MS: "0",
+        DLSITE_USER_AGENT: "",
+        NSFW_STRICT_MODE: "maybe",
+      }),
+    ).toThrowError();
+  });
+});
