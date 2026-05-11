@@ -1,5 +1,6 @@
 import type { Message } from "discord.js";
 import { getEnv } from "../../config/env";
+import { createRjCache, type RjCache } from "../../domain/rj/cache";
 import { extractRjCodes } from "../../domain/rj/extract-rj-codes";
 import type { DLSiteWork } from "../../domain/rj/types";
 import { fetchWorkPage } from "../../integrations/dlsite/fetch-work-page";
@@ -7,6 +8,7 @@ import { parseWork } from "../../integrations/dlsite/parse-work";
 import { buildFailureMessage, buildPreviewMessage } from "./build-preview-message";
 
 type MessageCreateDeps = {
+  cache: RjCache;
   fetchWorkPage: (rjCode: string) => Promise<string>;
   parseWork: (html: string, rjCode: string) => DLSiteWork;
   buildPreviewMessage: (
@@ -60,7 +62,13 @@ export function createMessageHandler(deps: MessageCreateDeps) {
     }
 
     try {
-      const work = deps.parseWork(await deps.fetchWorkPage(rjCode), rjCode);
+      const cachedWork = deps.cache.get(rjCode);
+      const work = cachedWork ?? deps.parseWork(await deps.fetchWorkPage(rjCode), rjCode);
+
+      if (!cachedWork) {
+        deps.cache.set(rjCode, work);
+      }
+
       await message.reply(deps.buildPreviewMessage(work, shouldAllowAdultDetails(message)));
     } catch (error) {
       deps.log?.error("Failed to build RJ preview", error);
@@ -73,6 +81,7 @@ let runtimeHandler: ((message: Message) => Promise<void>) | null = null;
 
 function getRuntimeHandler() {
   runtimeHandler ??= createMessageHandler({
+    cache: createRjCache(getEnv().CACHE_TTL_MS),
     fetchWorkPage,
     parseWork,
     buildPreviewMessage,
