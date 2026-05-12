@@ -22,6 +22,7 @@ function readFixture(fileName: string): string {
 describe("fetchDmmWorkPage", () => {
   it("normalizes ids by service", () => {
     expect(normalizeDmmId("fanza_doujin", "D_123456")).toBe("d_123456");
+    expect(normalizeDmmId("fanza_doujin", "d123456")).toBe("d_123456");
     expect(normalizeDmmId("dmm_tv_av", "MIDV00018")).toBe("midv00018");
     expect(normalizeDmmId("fanza_pcgame", "SPAL_0201")).toBe("spal_0201");
     expect(normalizeDmmId("fanza_books", "B915AWNMG03757")).toBe("b915awnmg03757");

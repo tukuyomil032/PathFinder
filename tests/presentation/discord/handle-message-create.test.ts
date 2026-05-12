@@ -405,6 +405,50 @@ describe("createMessageHandler", () => {
     ).toBeNull();
     expect(message.reply).toHaveBeenCalledWith(fallbackPayload);
   });
+
+  it("routes d123456 through the FANZA同人 flow with normalized id", async () => {
+    const message = createMockMessage("d123456", { nsfw: true });
+    const fanzaWork: WorkPreview = {
+      ...sampleWork,
+      store: "fanza_doujin",
+      id: "d_123456",
+      url: "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_123456/",
+      parseCoverage: "partial",
+      parserName: "fanza_doujin/dc-doujin-partial",
+    };
+    const page: FetchedWorkPage = {
+      ...samplePage,
+      store: "fanza_doujin",
+      fetchedUrl: "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_123456/",
+      resolvedUrl: "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_123456/",
+    };
+    const fetchWorkPage = vi.fn().mockResolvedValue(page);
+    const parseWork = vi.fn().mockReturnValue(fanzaWork);
+    const buildPreview = vi.fn().mockReturnValue({ content: "fanza-doujin" });
+    const handler = createMessageHandler({
+      cache: createRjCache(1_000),
+      fetchWorkPage,
+      parseWork,
+      buildPreviewMessage: buildPreview,
+      buildFailureMessage: vi.fn(),
+    });
+
+    await handler(message as never);
+
+    expect(fetchWorkPage).toHaveBeenCalledWith({
+      store: "fanza_doujin",
+      id: "d_123456",
+      kind: "code",
+      matchedText: "d123456",
+    });
+    expect(parseWork).toHaveBeenCalledWith(page, {
+      store: "fanza_doujin",
+      id: "d_123456",
+      kind: "code",
+      matchedText: "d123456",
+    });
+    expect(message.reply).toHaveBeenCalledWith({ content: "fanza-doujin" });
+  });
 });
 
 function reference(id: string): WorkReference {

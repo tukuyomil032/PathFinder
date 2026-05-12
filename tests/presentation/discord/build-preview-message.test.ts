@@ -89,12 +89,15 @@ describe("buildPreviewMessage", () => {
 describe("buildFailureMessage", () => {
   it("builds a concise fallback reply", () => {
     expect(buildFailureMessage("RJ012345").content).toContain("RJ012345");
+    expect(buildFailureMessage("RJ012345").content).toContain("av:mide00924");
   });
 
   it("builds a FANZA URL guidance reply", () => {
-    expect(buildFailureMessage("d_743581", "fanza_url_required").content).toContain(
-      "URL付きで送信してください",
-    );
+    const message = buildFailureMessage("d_743581", "fanza_url_required").content;
+
+    expect(message).toContain("URL付きで送信してください");
+    expect(message).toContain("game:spal_0201");
+    expect(message).toContain("book:b915awnmg04288");
   });
 });
 

@@ -133,6 +133,40 @@ describe("extractWorkReferences", () => {
     ]);
   });
 
+  it("normalizes FANZA同人 bare ids without underscores", () => {
+    expect(extractWorkReferences("check d756160 please")).toEqual([
+      {
+        store: "fanza_doujin",
+        id: "d_756160",
+        kind: "code",
+        matchedText: "d756160",
+      },
+    ]);
+  });
+
+  it("extracts explicit FANZA prefixes without double-detecting bare ids", () => {
+    expect(extractWorkReferences("av:mide00924 game:spal_0201 book:b915awnmg04288")).toEqual([
+      {
+        store: "dmm_tv_av",
+        id: "mide00924",
+        kind: "code",
+        matchedText: "av:mide00924",
+      },
+      {
+        store: "fanza_pcgame",
+        id: "spal_0201",
+        kind: "code",
+        matchedText: "game:spal_0201",
+      },
+      {
+        store: "fanza_books",
+        id: "b915awnmg04288",
+        kind: "code",
+        matchedText: "book:b915awnmg04288",
+      },
+    ]);
+  });
+
   it("returns references in message order across stores", () => {
     expect(extractWorkReferences("spal_0201 BJ02519460 d_100000 VJ01004728")).toEqual([
       {
@@ -158,6 +192,40 @@ describe("extractWorkReferences", () => {
         id: "VJ01004728",
         kind: "code",
         matchedText: "VJ01004728",
+      },
+    ]);
+  });
+
+  it("preserves message order across URL, bare, and explicit FANZA inputs", () => {
+    expect(
+      extractWorkReferences(
+        "book:b915awnmg04288 https://tv.dmm.co.jp/detail/?content=mide00924 d123456 game:spal_0201",
+      ),
+    ).toEqual([
+      {
+        store: "fanza_books",
+        id: "b915awnmg04288",
+        kind: "code",
+        matchedText: "book:b915awnmg04288",
+      },
+      {
+        store: "dmm_tv_av",
+        id: "mide00924",
+        kind: "url",
+        sourceUrl: "https://tv.dmm.co.jp/detail/?content=mide00924",
+        matchedText: "https://tv.dmm.co.jp/detail/?content=mide00924",
+      },
+      {
+        store: "fanza_doujin",
+        id: "d_123456",
+        kind: "code",
+        matchedText: "d123456",
+      },
+      {
+        store: "fanza_pcgame",
+        id: "spal_0201",
+        kind: "code",
+        matchedText: "game:spal_0201",
       },
     ]);
   });

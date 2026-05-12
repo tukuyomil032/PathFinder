@@ -215,7 +215,8 @@ export function normalizeDmmId(store: DmmStore, input: string): string {
   if (store === "fanza_doujin") {
     const fromQuery = raw.match(/cid=([a-z0-9_]+)/i)?.[1];
     const candidate = (fromQuery ?? raw).toLowerCase();
-    const normalized = candidate.replace(/\.html?$/i, "").replace(/[^a-z0-9_]/g, "");
+    const condensed = candidate.replace(/\.html?$/i, "").replace(/[^a-z0-9_]/g, "");
+    const normalized = /^d\d{3,}$/.test(condensed) ? condensed.replace(/^d/, "d_") : condensed;
 
     if (!/^d_\d{3,}$/.test(normalized)) {
       throw new TypeError(`Invalid FANZA doujin cid: ${input}`);

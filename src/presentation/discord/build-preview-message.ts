@@ -4,8 +4,10 @@ import { isDmmFamilyStore, type WorkPreview } from "../../domain/rj/types";
 export type DiscordReplyPayload = MessageCreateOptions;
 export type FailureMessageKind = "generic" | "fanza_url_required";
 
-const FAILURE_MESSAGE = "作品情報を取得できませんでした。時間をおいてからもう一度試してください。";
-const FANZA_URL_REQUIRED_MESSAGE = "この作品はURL付きで送信してください。";
+const FANZA_INPUT_EXAMPLES =
+  "FANZA例: d123456 / av:mide00924 / game:spal_0201 / book:b915awnmg04288";
+const FAILURE_MESSAGE = `作品情報を取得できませんでした。時間をおいてからもう一度試してください。\n${FANZA_INPUT_EXAMPLES}`;
+const FANZA_URL_REQUIRED_MESSAGE = `この作品はURL付きで送信してください。\n${FANZA_INPUT_EXAMPLES}`;
 
 export function buildPreviewMessage(
   work: WorkPreview,

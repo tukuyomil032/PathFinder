@@ -8,13 +8,15 @@ import {
   isDmmTvContentId,
   isFanzaBooksProductCode,
   isFanzaPcGameSlug,
+  normalizeDmmId,
 } from "../../integrations/dmm/fetch-work-page";
 
 const DLSITE_CODE_PATTERN = /\b((?:rj|bj|vj)\d{6,8})\b/gi;
 const URL_PATTERN = /https?:\/\/[^\s]+/gi;
-const FANZA_DOUJIN_PATTERN = /\b(d_\d{3,})\b/gi;
+const FANZA_DOUJIN_PATTERN = /\b(d_?\d{3,})\b/gi;
 const FANZA_PCGAME_PATTERN = /\b([a-z][a-z0-9]{1,}_[0-9]{3,})\b/gi;
 const FANZA_BOOKS_PATTERN = /\b(b\d{3,}[a-z]{2,}[a-z0-9]*\d{3,})\b/gi;
+const EXPLICIT_DMM_PATTERN = /\b(av|game|book):([a-z0-9_]+)\b/gi;
 const DMM_TV_PATTERNS = [
   /\b([a-z]{3,8}\d{4,6})\b/gi,
   /\b(\d[a-z]{3,8}\d{4,6})\b/gi,
@@ -58,12 +60,18 @@ export function extractWorkReferences(message: string): WorkReference[] {
       : null,
   );
 
-  pushBareMatches(message, matches, FANZA_DOUJIN_PATTERN, (raw) => ({
-    store: "fanza_doujin",
-    id: raw.toLowerCase(),
-    kind: "code",
-    matchedText: raw,
-  }));
+  pushExplicitDmmMatches(message, matches);
+
+  pushBareMatches(message, matches, FANZA_DOUJIN_PATTERN, (raw) => {
+    const normalized = normalizeDmmId("fanza_doujin", raw);
+
+    return {
+      store: "fanza_doujin",
+      id: normalized,
+      kind: "code",
+      matchedText: raw,
+    };
+  });
 
   pushBareMatches(message, matches, FANZA_PCGAME_PATTERN, (raw) => {
     const normalized = raw.toLowerCase();
@@ -108,6 +116,28 @@ export function extractWorkReferences(message: string): WorkReference[] {
     .map(({ index: _index, ...reference }) => reference);
 }
 
+function pushExplicitDmmMatches(message: string, matches: IndexedReference[]): void {
+  for (const match of message.matchAll(EXPLICIT_DMM_PATTERN)) {
+    const [raw, prefix, value] = match;
+    const index = match.index;
+
+    if (index === undefined || hasOverlap(index, raw.length, matches)) {
+      continue;
+    }
+
+    const reference = buildExplicitDmmReference(prefix, value, raw);
+
+    if (!reference) {
+      continue;
+    }
+
+    matches.push({
+      ...reference,
+      index,
+    });
+  }
+}
+
 function pushBareMatches(
   message: string,
   matches: IndexedReference[],
@@ -142,6 +172,44 @@ function hasOverlap(index: number, length: number, matches: IndexedReference[]):
     const end = start + sourceLength;
     return index < end && index + length > start;
   });
+}
+
+function buildExplicitDmmReference(
+  prefix: string,
+  value: string,
+  matchedText: string,
+): Omit<IndexedReference, "index"> | null {
+  const normalizedPrefix = prefix.toLowerCase();
+  const normalizedValue = value.toLowerCase();
+
+  if (normalizedPrefix === "av" && isDmmTvContentId(normalizedValue)) {
+    return {
+      store: "dmm_tv_av",
+      id: normalizedValue,
+      kind: "code",
+      matchedText,
+    };
+  }
+
+  if (normalizedPrefix === "game" && isFanzaPcGameSlug(normalizedValue)) {
+    return {
+      store: "fanza_pcgame",
+      id: normalizedValue,
+      kind: "code",
+      matchedText,
+    };
+  }
+
+  if (normalizedPrefix === "book" && isFanzaBooksProductCode(normalizedValue)) {
+    return {
+      store: "fanza_books",
+      id: normalizedValue,
+      kind: "code",
+      matchedText,
+    };
+  }
+
+  return null;
 }
 
 function trimTrailingPunctuation(value: string): string {

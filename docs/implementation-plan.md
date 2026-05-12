@@ -1,203 +1,139 @@
-# DLSite RJ Preview Bot Implementation Plan
+# DLSite/FANZA Preview Bot Implementation Notes
 
 ## 1. Purpose
 
-本書は要件定義と実装 handoff を兼ねる decision-complete な計画書である。実装者は本書の順序と責務分割に従って、最小構成で v1 を完成させる。
+本書は将来のゼロから実装する計画書ではなく、現行実装の handoff / maintenance 向けメモである。保守時は、現状の責務分割とテスト境界を崩さないことを優先する。
 
-## 1.1 Operational Preconditions
+## 2. Operational Preconditions
 
-- エージェント運用の全体基準は `~/.codex/AGENTS.md` を参照する
-- 実装着手前に、参照スキルの必要最小セットが `.codex/skills/<skill>/SKILL.md` にローカル配置済みであること
-- ローカル配置のコピー元は `~/.claude/skills/<skill>/` とする
-- 初回ローカル配置対象は `brainstorming`, `writing-plans`, `executing-plans`, `systematic-debugging`, `requesting-code-review`, `empirical-prompt-tuning`
+- エージェント運用の全体基準は `~/.codex/AGENTS.md` を参照する。
+- 実装・保守前に、参照スキルの必要最小セットが `.codex/skills/<skill>/SKILL.md` にローカル配置済みであること。
+- 初回ローカル配置対象は `brainstorming`, `writing-plans`, `executing-plans`, `systematic-debugging`, `requesting-code-review`, `empirical-prompt-tuning`。
 
-## 2. Implementation Order
+## 3. Current Flow
 
-1. Bun / TypeScript 基盤を作る
-2. `Biome + Lefthook + Vitest` を整える
-3. `zod` による環境変数検証を導入する
-4. RJ 抽出ロジックを実装する
-5. DLSite HTML 取得を実装する
-6. HTML parser を実装する
-7. Discord Embed formatter を実装する
-8. NSFW 分岐を実装する
-9. メモリキャッシュを追加する
-10. `pm2` 運用手順を文書化する
+1. `src/presentation/discord/handle-message-create.ts` がメッセージ本文から先頭の `WorkReference` を選ぶ。
+2. `src/domain/rj/resolve-work.ts` が `store` に応じて fetch / probe / parse を切り替える。
+3. DLSite は canonical URL を組み立てて fetch し、DMM family は URL 取得または bare probe を行う。
+4. `parseWork` が `WorkPreview` に正規化する。
+5. キャッシュへ保存し、`build-preview-message.ts` が NSFW 制御込みで返信 payload を組み立てる。
 
-## 3. File Responsibilities
+## 4. File Responsibilities
 
 | Path | Responsibility |
 | --- | --- |
 | `src/bot/index.ts` | エントリポイント、Discord Client 起動 |
 | `src/config/env.ts` | `.env` 読み込みと `zod` 検証 |
-| `src/domain/rj/extract-rj-codes.ts` | RJ コード抽出と正規化 |
-| `src/domain/rj/types.ts` | `DLSiteWork` などの型定義 |
-| `src/domain/rj/cache.ts` | TTL 付きメモリキャッシュ |
-| `src/integrations/dlsite/fetch-work-page.ts` | DLSite HTML 取得 |
-| `src/integrations/dlsite/parse-work.ts` | HTML から作品情報を抽出 |
+| `src/domain/rj/extract-work-references.ts` | 作品参照抽出と正規化 |
+| `src/domain/rj/extract-rj-codes.ts` | DLSite ID だけを返す後方互換 wrapper |
+| `src/domain/rj/types.ts` | `WorkReference`, `FetchedWorkPage`, `WorkPreview` などの共通型 |
+| `src/domain/rj/cache.ts` | `WorkReference(store + id)` 前提の TTL 付きメモリキャッシュ |
+| `src/domain/rj/resolve-work.ts` | store ごとの fetch / probe / parse 解決 |
+| `src/integrations/dlsite/fetch-work-page.ts` | DLSite URL 生成と HTML 取得 |
+| `src/integrations/dlsite/parse-work.ts` | DLSite HTML から作品情報を抽出 |
+| `src/integrations/dmm/fetch-work-page.ts` | DMM family URL 解決、probe、年齢確認付き HTML 取得 |
+| `src/integrations/dmm/parse-work.ts` | FANZA同人 / DMM TV / FANZA GAMES / FANZA BOOKS 解析 |
 | `src/presentation/discord/build-preview-message.ts` | Embed / 失敗応答組み立て |
 | `src/presentation/discord/handle-message-create.ts` | 薄い Discord ハンドラ |
-| `tests/fixtures/*.html` | parser fixture |
-| `tests/**/*.test.ts` | unit test |
+| `tests/fixtures/*.html` | parser / fetch fixture |
+| `tests/**/*.test.ts` | unit / integration test |
 
-## 4. Acceptance Criteria By Step
+## 5. Supported Inputs
 
-### Step 1. Bun / TypeScript 基盤
+### DLSite
 
-- `bun init` 相当の最小構成がある
-- `tsconfig.json` が存在する
-- `src/` と `tests/` のディレクトリ責務が揃う
+- bare ID: `RJ012345`, `BJ02519460`, `VJ01004728`
+- 対応 URL
 
-### Step 2. Tooling
+### DMM family
 
-- `biome`, `vitest`, `lefthook` が導入される
-- pre-commit で以下が必ず走る
-  - `biome format --check`
-  - `biome lint`
-  - `tsc --noEmit`
-  - `vitest run`
+- FANZA同人 bare ID: `d_123456`, `d123456`
+- DMM TV bare ID: `mide00924`
+- FANZA GAMES bare slug: `spal_0201`
+- FANZA BOOKS bare code: `b915awnmg04288`
+- 明示プレフィックス: `av:<id>`, `game:<slug>`, `book:<code>`
+- 各対応 URL
 
-### Step 3. Env Validation
+## 6. Current Behavior Notes
 
-- `.env` の必須項目が `zod` で検証される
-- 不正値で起動が停止する
+- 1 メッセージ内に複数参照があっても先頭 1 件のみ処理する。
+- DLSite bare ID は prefix に応じて `maniax` / `books` / `pro` を切り替える。
+- DMM family の URL 入力は query を落とさず取得する。
+- FANZA同人 bare は probe 成功時だけ canonical URL に昇格する。
+- FANZA同人 bare の probe が失敗した場合は通常失敗ではなく URL 誘導へ落とす。
+- 非 NSFW チャンネルでは DMM family 全体を最小表示へ倒す。
 
-### Step 4. RJ Extraction
+## 7. Maintenance Rules
 
-- 単体コードを抽出できる
-- 大文字小文字混在を正規化できる
-- 複数コードがあっても先頭を選べる
+- Discord handler は薄く保ち、取得・解析・整形・失敗分岐を domain / integrations / presentation に分ける。
+- DOM 変化対応時は fixture 更新と parser 修正をセットで行う。
+- `process.env` の直接参照は `src/config` 以外へ広げない。
+- 新しい入力系を追加する場合は `extract-work-references.ts`、`resolve-work.ts`、presentation、tests を同時に更新する。
 
-### Step 5-6. Fetch / Parse
+## 8. Testing Focus
 
-- fixture HTML から必須項目を抽出できる
-- 任意項目欠落でも落ちない
-- DOM 変化を検知できる
+### `tests/domain/rj/extract-work-references.test.ts`
 
-### Step 7-8. Reply / NSFW
+- `RJ/BJ/VJ`
+- FANZA同人 `d_123456` / `d123456`
+- bare DMM TV / FANZA GAMES / FANZA BOOKS
+- `av:` / `game:` / `book:`
+- URL と bare が混在したときの順序保証
 
-- NSFW チャンネルでは詳細 Embed を返せる
-- 非 NSFW では成人向け詳細が抑制される
-- 失敗時は簡潔応答になる
+### `tests/domain/rj/resolve-work.test.ts`
 
-### Step 9. Cache
+- DLSite bare / URL の canonical 解決
+- DMM family bare / URL の fetch / probe
+- FANZA同人 bare probe 失敗時の `fanza_url_required`
 
-- TTL 内ヒットで再取得しない
-- TTL 後に失効する
+### `tests/presentation/discord/build-preview-message.test.ts`
 
-### Step 10. Operations
+- 通常 Embed
+- 非 NSFW での抑制表示
+- DMM family の非 NSFW 最小表示
+- `generic` / `fanza_url_required` の失敗文言
 
-- `pm2` 起動、再起動、ログ確認手順が README または docs にまとまる
+### `tests/presentation/discord/handle-message-create.test.ts`
 
-## 5. Recommended Patterns
+- 先頭 1 件処理
+- cache hit / miss
+- store ごとの routing
+- FANZA URL 誘導の返信分岐
 
-### 5.1 `zod` で env を厳格検証する
+### `tests/presentation/discord/preview-flow.integration.test.ts`
 
-```ts
-import { z } from "zod";
+- fetch -> parse -> cache -> reply の統合フロー
+- 複数候補から先頭だけ使う挙動
 
-const envSchema = z.object({
-  DISCORD_BOT_TOKEN: z.string().min(1),
-  CACHE_TTL_MS: z.coerce.number().int().positive(),
-  DLSITE_USER_AGENT: z.string().min(1),
-  NSFW_STRICT_MODE: z.enum(["true", "false"]).transform((v) => v === "true"),
-});
+### Parser / Fetch Tests
 
-export const env = envSchema.parse(process.env);
-```
+- `tests/integrations/dlsite/*.test.ts`
+- `tests/integrations/fanza/*.test.ts`
+- fixture DOM からの主要項目抽出
+- age-check / not-found / required-field-missing の異常系
 
-### 5.2 parser と formatter を分離する
+## 9. Verification Commands
 
-```ts
-const html = await fetchWorkPage(workId);
-const work = parseWork(html, workId);
-const reply = buildPreviewMessage(work, channelIsNsfw);
-```
-
-### 5.3 Discord handler を薄く保つ
-
-```ts
-export async function handleMessageCreate(message: Message) {
-  const [workId] = extractRjCodes(message.content);
-  if (!workId) return;
-
-  const work = await previewService.getWork(workId);
-  const payload = buildPreviewMessage(work, message.channel.nsfw ?? false);
-  await message.reply(payload);
-}
-```
-
-## 6. NG Patterns
-
-- Discord handler に取得、解析、整形、返信、例外分岐を全部詰め込む
-- HTML を広範囲に正規表現だけで解析する
-- `process.env` を各所で直接読む
-- NSFW 判定なしで常に詳細表示する
-- pre-commit を通らない差分を前提に運用する
-
-## 7. Testing Plan
-
-### `extractRjCodes`
-
-- `RJ / BJ / VJ` の DLSite ID を抽出できる
-- 小文字や空白混在時の扱いを固定できる
-- 先頭 1 件処理方針を検証できる
-
-### `parseWork`
-
-- fixture HTML から必須項目を抽出できる
-- 任意項目欠落時も壊れない
-- DOM 変化時に失敗検知できる
-
-### `buildPreviewMessage`
-
-- NSFW チャンネルでは詳細表示する
-- 非 NSFW では抑制表示する
-- 失敗時は簡潔メッセージになる
-
-### `cache`
-
-- TTL 内再利用
-- TTL 後失効
-
-### `tooling`
-
-- `lefthook pre-commit` で format / lint / typecheck / test が全部走る
-- `package.json` scripts と `justfile` の責務分離が守られる
-
-## 8. Verification Commands
-
-実装完了時の基本確認コマンド:
+保守作業後の基本確認:
 
 ```bash
-bunx biome format .
-bunx biome lint .
-bunx tsc --noEmit
-bunx vitest run
+bun run typecheck
+bun run test
 ```
 
-運用確認コマンド候補:
+必要に応じて品質ゲート全体を確認:
 
 ```bash
-pm2 start ecosystem.config.cjs
-pm2 status
-pm2 logs dlsite-rj-preview-bot
+bun run check
 ```
 
-## 9. Handoff Notes
+docs-only 更新では、上記に加えて `rg` による文言整合確認を主確認としてよい。
 
-- `package.json` は最小 scripts のみ持つ
-- 補助操作は `justfile` に集約する
-- DLSite parser は DOM 変化に弱いので fixture 更新導線を明確にする
-- Bot の返信文面は最初から短く保ち、ログで詳細を追う
-- `NSFW_STRICT_MODE` が有効な場合は、迷ったら非表示側に倒す
-- 実装 handoff では `.codex/skills` にローカル配置したスキルを参照し、追加が必要な場合だけ `~/.claude/skills` から補充する
-- 完了後は `.codex/skills/requesting-code-review/SKILL.md`、`.codex/skills/empirical-prompt-tuning/SKILL.md`、`/clear` の順で運用を閉じる
+## 10. Handoff Notes
 
-## 10. Ready-To-Implement Definition
-
-以下を満たせば実装着手可とみなす。
-
-- 要件、構成、責務境界が `docs/requirements.md` と `docs/architecture.md` に揃っている
-- ファイル責務と実装順序が本書で固定されている
-- 受け入れ条件と確認コマンドが本書で明示されている
+- `package.json` は最小 scripts のみ持つ。
+- 補助操作は `justfile` に集約する。
+- DLSite / DMM-FANZA の DOM 変化が疑われる場合は `tests/fixtures/*.html` を更新し、関連 parser テストを見直す。
+- Bot の返信文面は短く保ち、詳細はログで追う。
+- `NSFW_STRICT_MODE` が有効な場合は、迷ったら非表示側に倒す。
+- 完了後は `.codex/skills/requesting-code-review/SKILL.md`、`.codex/skills/empirical-prompt-tuning/SKILL.md`、`/clear` の順で運用を閉じる。
