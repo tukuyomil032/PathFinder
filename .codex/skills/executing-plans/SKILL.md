@@ -15,13 +15,17 @@ Load plan, review critically, execute all tasks, report when complete.
 
 **Fallbacks for local project copies:** If referenced workflow skills such as `using-git-worktrees` or `finishing-a-development-branch` are not available in the current environment, continue with the closest local equivalent instead of blocking. In this repository, that means: verify the current branch/worktree state yourself before editing, then finish by running the planned verification commands plus the local `requesting-code-review` and `empirical-prompt-tuning` completion flow. If the repository has no `HEAD` yet (for example, an initial uncommitted repo), do not block on commit-range review. Define the review scope as the current uncommitted target files, run a file-level static review against the plan/requirements, and report that the no-`HEAD` fallback path was used.
 
+If branch or worktree creation is blocked by the sandbox, do not stall the task solely for that reason. Record that branch isolation could not be established in the current environment, avoid destructive git operations, and continue with focused file edits plus explicit verification.
+
 ## The Process
 
 ### Step 1: Load and Review Plan
 1. Read plan file
-2. Review critically - identify any questions or concerns about the plan
-3. If concerns: Raise them with your human partner before starting
-4. If no concerns: Create TodoWrite and proceed
+2. Re-read the current target files and reconcile them against the plan before editing, especially when the plan came from a previous agent or the worktree is already dirty
+3. When the plan extends URL extract/fetch logic across services, verify whether any target service uses query-string identifiers (for example `?content=`) and preserve them through normalization and tests rather than rebuilding URLs from `pathname` alone
+4. Review critically - identify any questions or concerns about the plan
+5. If concerns: Raise them with your human partner before starting
+6. If no concerns: Create TodoWrite and proceed
 
 ### Step 2: Execute Tasks
 
