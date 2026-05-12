@@ -6,12 +6,14 @@ describe("parseEnv", () => {
     const result = parseEnv({
       DISCORD_BOT_TOKEN: "token",
       DISCORD_CLIENT_ID: "client-id",
+      DISCORD_GUILD_ID: "guild-id",
       CACHE_TTL_MS: "60000",
       DLSITE_USER_AGENT: "test-agent",
       NSFW_STRICT_MODE: "true",
     });
 
     expect(result.CACHE_TTL_MS).toBe(60000);
+    expect(result.DISCORD_GUILD_ID).toBe("guild-id");
     expect(result.NSFW_STRICT_MODE).toBe(true);
   });
 

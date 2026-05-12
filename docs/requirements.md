@@ -29,6 +29,7 @@
   - bare DMM TV ID、FANZA GAMES slug、FANZA BOOKS code
 - 1 メッセージに複数の参照が含まれても先頭 1 件のみ処理する。
 - 作品ページから作品概要を取得し、Discord Embed に整形して返信する。
+- Slash Command から同じプレビュー処理を明示実行できる。
 - NSFW チャンネルでは詳細表示、非 NSFW チャンネルでは成人向け作品の詳細を抑制する。
 - 作品情報の短時間メモリキャッシュを持つ。
 - `.env` を正本として設定を注入し、起動時に厳格検証する。
@@ -39,7 +40,6 @@
 - 公式 API 連携
 - 永続 DB 導入
 - サーバーごとの個別設定保存
-- Slash Command や管理 UI
 - 多言語対応
 - 画像の再ホストやファイル添付
 - 2 件目以降の同時展開
@@ -63,6 +63,31 @@
 - FANZA同人 bare ID が probe で解決できない場合は、通常失敗ではなく URL 付き送信の誘導へフォールバックする。
 - HTTP 取得時は専用 `User-Agent` を付与する。
 - ネットワーク失敗、404、想定外レスポンス時は失敗応答へフォールバックする。
+
+### 4.2.1 Slash Commands
+
+- Bot は `interactionCreate` で Chat Input Command を購読する。
+- 以下の command surface を提供する。
+  - `/dlsite maniax input:<string>`
+  - `/dlsite books input:<string>`
+  - `/dlsite pro input:<string>`
+  - `/fanza doujin input:<string>`
+  - `/fanza av input:<string>`
+  - `/fanza game input:<string>`
+  - `/fanza book input:<string>`
+  - `/help [command]`
+- `input` は ID または対応 URL のみ受け付ける。
+- サブコマンドと内部 `store` / surface の対応は固定する。
+  - `/dlsite maniax` -> `dlsite` + `RJ`
+  - `/dlsite books` -> `dlsite` + `BJ`
+  - `/dlsite pro` -> `dlsite` + `VJ`
+  - `/fanza doujin` -> `fanza_doujin`
+  - `/fanza av` -> `dmm_tv_av`
+  - `/fanza game` -> `fanza_pcgame`
+  - `/fanza book` -> `fanza_books`
+- 不正入力時は、そのコマンド系統に対応した短い usage を返す。
+- `/help` は全体一覧、入力フォーマット、代表例、NSFW 挙動を返し、`command` 指定時は対象 command だけ詳しく返す。
+- `/help` は `ephemeral`、プレビュー系 command は通常返信とする。
 
 ### 4.3 Parsing
 
@@ -131,6 +156,7 @@
 | --- | --- | --- |
 | `DISCORD_BOT_TOKEN` | Yes | Discord Bot トークン |
 | `DISCORD_CLIENT_ID` | No | 将来のコマンド拡張用の控え |
+| `DISCORD_GUILD_ID` | No | Slash Command を guild 登録する対象サーバー ID |
 | `CACHE_TTL_MS` | Yes | メモリキャッシュ TTL |
 | `DLSITE_USER_AGENT` | Yes | DLSite 取得用 User-Agent |
 | `NSFW_STRICT_MODE` | Yes | 成人向け表示制御の厳格化フラグ |
@@ -148,6 +174,12 @@
 2. Bot が store と ID を解決し、DMM family の作品ページを取得する。
 3. Bot が作品情報を解析し、Discord Embed に整形する。
 4. 非 NSFW チャンネルでは最小情報のみ返信する。
+
+1. ユーザーが `/dlsite books input:BJ02519460` を実行する。
+2. Bot が `WorkReference` を明示生成し、メッセージ自動検出と同じプレビュー経路で作品情報を返す。
+
+1. ユーザーが `/help fanza` を実行する。
+2. Bot が FANZA 系サブコマンド、入力形式、代表例、NSFW 挙動を `ephemeral` で返す。
 
 ### 異常系
 
@@ -187,6 +219,7 @@
 - 成人向け表示制御の挙動が NSFW / 非 NSFW で明示され、DMM family が非 NSFW では最小表示へ倒れることが示されている。
 - `fanza_url_required` を含む失敗時応答方針が固定されている。
 - 先頭 1 件処理と `WorkReference(store + id)` 単位キャッシュが明示されている。
+- Slash Command surface、usage、`ephemeral` 方針が定義されている。
 - 運用上の外部依存と主要リスクが文書内で明示されている。
 
 ## 11. Agent Operation Notes

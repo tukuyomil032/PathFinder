@@ -6,6 +6,7 @@ loadEnv();
 export const envSchema = z.object({
   DISCORD_BOT_TOKEN: z.string().min(1),
   DISCORD_CLIENT_ID: z.string().min(1).optional(),
+  DISCORD_GUILD_ID: z.string().min(1).optional(),
   CACHE_TTL_MS: z.coerce.number().int().positive(),
   DLSITE_USER_AGENT: z.string().min(1),
   NSFW_STRICT_MODE: z.enum(["true", "false"]).transform((value) => value === "true"),

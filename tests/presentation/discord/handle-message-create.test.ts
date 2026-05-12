@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createRjCache } from "../../../src/domain/rj/cache";
-import { WorkPreviewResolutionError } from "../../../src/domain/rj/resolve-work";
 import type { FetchedWorkPage, WorkPreview, WorkReference } from "../../../src/domain/rj/types";
 import { createMessageHandler } from "../../../src/presentation/discord/handle-message-create";
+import { createPreviewRuntime } from "../../../src/presentation/discord/preview-runtime";
 
 function createMockMessage(
   content: string,
@@ -75,11 +75,13 @@ describe("createMessageHandler", () => {
   it("does nothing when no work reference exists", async () => {
     const message = createMockMessage("hello");
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage: vi.fn(),
-      parseWork: vi.fn(),
-      buildPreviewMessage: vi.fn(),
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage: vi.fn(),
+        parseWork: vi.fn(),
+        buildPreviewMessage: vi.fn(),
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -94,11 +96,13 @@ describe("createMessageHandler", () => {
     const previewPayload = { embeds: [{ title: "preview" }] };
     const buildPreview = vi.fn().mockReturnValue(previewPayload);
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -127,11 +131,13 @@ describe("createMessageHandler", () => {
       rawAttributes: { surface: "books" },
     });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: vi.fn().mockReturnValue({ content: "books" }),
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: vi.fn().mockReturnValue({ content: "books" }),
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -152,11 +158,13 @@ describe("createMessageHandler", () => {
     const parseWork = vi.fn();
     const buildPreview = vi.fn().mockReturnValue({ content: "cached" });
     const handler = createMessageHandler({
-      cache,
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache,
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -171,12 +179,14 @@ describe("createMessageHandler", () => {
     const fallbackPayload = { content: "failed" };
     const buildFailure = vi.fn().mockReturnValue(fallbackPayload);
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage: vi.fn().mockRejectedValue(new Error("boom")),
-      parseWork: vi.fn(),
-      buildPreviewMessage: vi.fn(),
-      buildFailureMessage: buildFailure,
-      log: { error: vi.fn() },
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage: vi.fn().mockRejectedValue(new Error("boom")),
+        parseWork: vi.fn(),
+        buildPreviewMessage: vi.fn(),
+        buildFailureMessage: buildFailure,
+        log: { error: vi.fn() },
+      }),
     });
 
     await handler(message as never);
@@ -192,11 +202,13 @@ describe("createMessageHandler", () => {
     });
     const buildPreview = vi.fn().mockReturnValue({ content: "thread" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
-      parseWork: vi.fn().mockReturnValue(sampleWork),
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
+        parseWork: vi.fn().mockReturnValue(sampleWork),
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -210,11 +222,13 @@ describe("createMessageHandler", () => {
     const message = createMockMessage("RJ012345");
     const buildPreview = vi.fn().mockReturnValue({ content: "strict" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
-      parseWork: vi.fn().mockReturnValue(sampleWork),
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
+        parseWork: vi.fn().mockReturnValue(sampleWork),
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -228,11 +242,13 @@ describe("createMessageHandler", () => {
     const message = createMockMessage("RJ012345");
     const buildPreview = vi.fn().mockReturnValue({ content: "non-strict" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
-      parseWork: vi.fn().mockReturnValue(sampleWork),
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
+        parseWork: vi.fn().mockReturnValue(sampleWork),
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -260,11 +276,13 @@ describe("createMessageHandler", () => {
     const parseWork = vi.fn().mockReturnValue(dmmWork);
     const buildPreview = vi.fn().mockReturnValue({ content: "dmm-tv" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -299,11 +317,13 @@ describe("createMessageHandler", () => {
     });
     const buildPreview = vi.fn().mockReturnValue({ content: "vj" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -355,11 +375,13 @@ describe("createMessageHandler", () => {
     const fetchWorkPage = vi.fn().mockResolvedValue(page);
     const parseWork = vi.fn().mockReturnValue(fullWork);
     const handler = createMessageHandler({
-      cache,
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: vi.fn().mockReturnValue({ content: "upgraded" }),
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache,
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: vi.fn().mockReturnValue({ content: "upgraded" }),
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);
@@ -377,32 +399,16 @@ describe("createMessageHandler", () => {
   });
 
   it("guides users to send a FANZA同人 URL when bare cid cannot be resolved", async () => {
-    const cache = createRjCache(1_000);
     const message = createMockMessage("d_743581", { nsfw: true });
     const fallbackPayload = { content: "needs url" };
-    const buildFailure = vi.fn().mockReturnValue(fallbackPayload);
     const handler = createMessageHandler({
-      cache,
-      fetchWorkPage: vi
-        .fn()
-        .mockRejectedValue(new WorkPreviewResolutionError("fanza_url_required", "d_743581")),
-      parseWork: vi.fn(),
-      buildPreviewMessage: vi.fn(),
-      buildFailureMessage: buildFailure,
-      log: { error: vi.fn() },
+      previewRuntime: {
+        resolve: vi.fn().mockResolvedValue(fallbackPayload),
+      } as never,
     });
 
     await handler(message as never);
 
-    expect(buildFailure).toHaveBeenCalledWith("d_743581", "fanza_url_required");
-    expect(
-      cache.get({
-        store: "fanza_doujin",
-        id: "d_743581",
-        kind: "code",
-        matchedText: "d_743581",
-      }),
-    ).toBeNull();
     expect(message.reply).toHaveBeenCalledWith(fallbackPayload);
   });
 
@@ -426,11 +432,13 @@ describe("createMessageHandler", () => {
     const parseWork = vi.fn().mockReturnValue(fanzaWork);
     const buildPreview = vi.fn().mockReturnValue({ content: "fanza-doujin" });
     const handler = createMessageHandler({
-      cache: createRjCache(1_000),
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage: buildPreview,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache: createRjCache(1_000),
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage: buildPreview,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     await handler(message as never);

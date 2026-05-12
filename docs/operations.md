@@ -4,9 +4,10 @@
 
 1. `cp .env.example .env`
 2. `.env` に `DISCORD_BOT_TOKEN`, `CACHE_TTL_MS`, `DLSITE_USER_AGENT`, `NSFW_STRICT_MODE` を設定する
-3. `bun install`
-4. `just hooks-install`
-5. `just check`
+3. guild へ即時反映したい場合は `DISCORD_GUILD_ID` を追加する
+4. `bun install`
+5. `just hooks-install`
+6. `just check`
 
 `package.json` は最小 scripts のみを持ち、日常操作は `justfile` を優先する。
 
@@ -27,6 +28,17 @@
 - ログ確認: `just pm2-logs`
 - 再起動: `pm2 restart dlsite-rj-preview-bot`
 - 停止: `pm2 stop dlsite-rj-preview-bot`
+
+## Slash Command Registration
+
+- 起動時に command 同期を実行する。
+- `DISCORD_GUILD_ID` を設定した場合:
+  - guild commands として登録する。
+  - 反映は速い。
+- `DISCORD_GUILD_ID` を省略した場合:
+  - global commands として登録する。
+  - 反映まで時間がかかる場合がある。
+- `help` は `ephemeral`、preview 系 command は通常返信で動作する。
 
 ## Daily Checks
 

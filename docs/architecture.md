@@ -2,7 +2,7 @@
 
 ## 1. Architecture Summary
 
-この Bot は Discord の `messageCreate` イベントを入口に、作品参照抽出、store 解決、fetch / probe、HTML 解析、キャッシュ、Discord 返信整形を順に流すパイプライン構成を取る。責務分離を優先し、Discord ハンドラは薄く保つ。
+この Bot は Discord の `messageCreate` と `interactionCreate` を入口に、`WorkReference` 解決、fetch / probe、HTML 解析、キャッシュ、Discord 返信整形を共有するパイプライン構成を取る。責務分離を優先し、Discord ハンドラは薄く保つ。
 
 ## 2. High-Level Flow
 
@@ -11,15 +11,17 @@ flowchart LR
     A[Discord messageCreate] --> B[Work Reference Extractor]
     B --> C{Reference found?}
     C -- no --> Z[No action]
-    C -- yes --> D[Store Resolver]
-    D --> E[Cache Lookup]
-    E --> F{Cache hit?}
-    F -- yes --> K[Reply Formatter]
-    F -- no --> G[Fetch / Probe]
-    G --> H[Parse]
-    H --> I[Cache Store]
-    I --> K
-    K --> J[Discord Reply]
+    C -- yes --> E[Shared Preview Runtime]
+    D[Discord interactionCreate] --> D1[Command Input Resolver]
+    D1 --> E
+    E --> F[Cache Lookup]
+    F --> G{Cache hit?}
+    G -- yes --> K[Reply Formatter]
+    G -- no --> H[Fetch / Probe]
+    H --> I[Parse]
+    I --> J[Cache Store]
+    J --> K
+    K --> L[Discord Reply]
 ```
 
 ## 3. Component Responsibilities
@@ -33,6 +35,9 @@ flowchart LR
 ### `src/presentation/discord`
 
 - `messageCreate` ハンドラ
+- `interactionCreate` ハンドラ
+- Slash Command 定義と help 応答
+- command 登録同期
 - Discord Embed 生成
 - NSFW 判定
 - `generic` / `fanza_url_required` の失敗応答組み立て
@@ -129,6 +134,11 @@ type WorkPreview = {
 declare function extractWorkReferences(message: string): WorkReference[];
 declare function fetchWorkPage(reference: WorkReference): Promise<FetchedWorkPage>;
 declare function parseWork(page: FetchedWorkPage, reference: WorkReference): WorkPreview;
+declare function resolvePreviewReference(input: {
+  commandName: "dlsite" | "fanza";
+  subcommand: string;
+  input: string;
+}): { reference: WorkReference } | { usage: string };
 declare function buildPreviewMessage(
   work: WorkPreview,
   channelIsNsfw: boolean,
@@ -138,9 +148,17 @@ declare function buildPreviewMessage(
 ## 6. Resolution Strategy
 
 - `extractWorkReferences` は URL、DLSite bare ID、DMM family bare ID、`av:` / `game:` / `book:` プレフィックスを同一列で抽出する。
+- Slash Command 側は `resolvePreviewReference` でサブコマンドに対応する `WorkReference` を明示生成する。
 - `resolve-work.ts` は `store` に応じて DLSite fetcher / parser と DMM fetcher / parser を切り替える。
 - DMM family の URL 入力は canonical 化に必要な query を保持したまま取得する。
 - FANZA同人 bare ID は probe 成功時のみ canonical URL に昇格し、失敗時は `fanza_url_required` を返す。
+
+## 6.1 Command Registration Strategy
+
+- 起動時に application command を同期する。
+- `DISCORD_GUILD_ID` がある場合は guild commands を優先登録する。
+- `DISCORD_GUILD_ID` がない場合は global commands を登録する。
+- command 定義は `discord.js` 標準の builder で 1 箇所に集約する。
 
 ## 7. NSFW Policy
 

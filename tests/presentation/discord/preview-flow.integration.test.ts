@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createRjCache } from "../../../src/domain/rj/cache";
 import type { FetchedWorkPage, WorkPreview } from "../../../src/domain/rj/types";
 import { createMessageHandler } from "../../../src/presentation/discord/handle-message-create";
+import { createPreviewRuntime } from "../../../src/presentation/discord/preview-runtime";
 
 const sampleWork: WorkPreview = {
   store: "dlsite",
@@ -56,11 +57,13 @@ describe("preview flow integration", () => {
       .fn()
       .mockImplementation((work: WorkPreview) => ({ content: work.title }));
     const handler = createMessageHandler({
-      cache,
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache,
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     const first = createMockMessage("RJ012345 RJ999999");
@@ -135,11 +138,13 @@ describe("preview flow integration", () => {
       .fn()
       .mockImplementation((work: WorkPreview) => ({ content: work.title }));
     const handler = createMessageHandler({
-      cache,
-      fetchWorkPage,
-      parseWork,
-      buildPreviewMessage,
-      buildFailureMessage: vi.fn(),
+      previewRuntime: createPreviewRuntime({
+        cache,
+        fetchWorkPage,
+        parseWork,
+        buildPreviewMessage,
+        buildFailureMessage: vi.fn(),
+      }),
     });
 
     const first = createMockMessage("BJ02519460");

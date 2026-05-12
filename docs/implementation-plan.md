@@ -13,10 +13,10 @@
 ## 3. Current Flow
 
 1. `src/presentation/discord/handle-message-create.ts` がメッセージ本文から先頭の `WorkReference` を選ぶ。
-2. `src/domain/rj/resolve-work.ts` が `store` に応じて fetch / probe / parse を切り替える。
-3. DLSite は canonical URL を組み立てて fetch し、DMM family は URL 取得または bare probe を行う。
-4. `parseWork` が `WorkPreview` に正規化する。
-5. キャッシュへ保存し、`build-preview-message.ts` が NSFW 制御込みで返信 payload を組み立てる。
+2. `src/presentation/discord/handle-interaction-create.ts` が Slash Command 入力から `WorkReference` を明示生成する。
+3. `src/presentation/discord/preview-runtime.ts` が message / interaction 共通の cache -> fetch -> parse -> reply payload 経路を実行する。
+4. `src/domain/rj/resolve-work.ts` が `store` に応じて fetch / probe / parse を切り替える。
+5. `build-preview-message.ts` が NSFW 制御込みの返信 payload を組み立てる。
 
 ## 4. File Responsibilities
 
@@ -35,6 +35,10 @@
 | `src/integrations/dmm/parse-work.ts` | FANZA同人 / DMM TV / FANZA GAMES / FANZA BOOKS 解析 |
 | `src/presentation/discord/build-preview-message.ts` | Embed / 失敗応答組み立て |
 | `src/presentation/discord/handle-message-create.ts` | 薄い Discord ハンドラ |
+| `src/presentation/discord/handle-interaction-create.ts` | Slash Command ハンドラ |
+| `src/presentation/discord/preview-runtime.ts` | 共有 preview 実行層 |
+| `src/presentation/discord/command-definitions.ts` | command 定義、help 文面、入力解決 |
+| `src/presentation/discord/register-commands.ts` | guild / global command 同期 |
 | `tests/fixtures/*.html` | parser / fetch fixture |
 | `tests/**/*.test.ts` | unit / integration test |
 
@@ -57,15 +61,18 @@
 ## 6. Current Behavior Notes
 
 - 1 メッセージ内に複数参照があっても先頭 1 件のみ処理する。
+- Slash Command は `親 + サブコマンド` に固定し、自動検出とは別導線で同じ preview runtime を使う。
 - DLSite bare ID は prefix に応じて `maniax` / `books` / `pro` を切り替える。
 - DMM family の URL 入力は query を落とさず取得する。
 - FANZA同人 bare は probe 成功時だけ canonical URL に昇格する。
 - FANZA同人 bare の probe が失敗した場合は通常失敗ではなく URL 誘導へ落とす。
 - 非 NSFW チャンネルでは DMM family 全体を最小表示へ倒す。
+- `/help` は `ephemeral`、preview 系 command は通常返信に固定する。
 
 ## 7. Maintenance Rules
 
 - Discord handler は薄く保ち、取得・解析・整形・失敗分岐を domain / integrations / presentation に分ける。
+- command 登録と help 文面は command 定義モジュールへ寄せ、handler 側で分散させない。
 - DOM 変化対応時は fixture 更新と parser 修正をセットで行う。
 - `process.env` の直接参照は `src/config` 以外へ広げない。
 - 新しい入力系を追加する場合は `extract-work-references.ts`、`resolve-work.ts`、presentation、tests を同時に更新する。
@@ -99,6 +106,18 @@
 - cache hit / miss
 - store ごとの routing
 - FANZA URL 誘導の返信分岐
+
+### `tests/presentation/discord/handle-interaction-create.test.ts`
+
+- 各サブコマンドから正しい `WorkReference` を作る
+- ID / URL の両入力を受け付ける
+- 不正 input で usage を返す
+- `/help` が `ephemeral` になる
+
+### `tests/presentation/discord/register-commands.test.ts`
+
+- guild 指定ありで guild commands を登録する
+- guild 指定なしで global commands を登録する
 
 ### `tests/presentation/discord/preview-flow.integration.test.ts`
 
