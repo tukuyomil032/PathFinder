@@ -109,8 +109,8 @@ export const env = envSchema.parse(process.env);
 ### 5.2 parser と formatter を分離する
 
 ```ts
-const html = await fetchWorkPage(rjCode);
-const work = parseWork(html, rjCode);
+const html = await fetchWorkPage(workId);
+const work = parseWork(html, workId);
 const reply = buildPreviewMessage(work, channelIsNsfw);
 ```
 
@@ -118,10 +118,10 @@ const reply = buildPreviewMessage(work, channelIsNsfw);
 
 ```ts
 export async function handleMessageCreate(message: Message) {
-  const [rjCode] = extractRjCodes(message.content);
-  if (!rjCode) return;
+  const [workId] = extractRjCodes(message.content);
+  if (!workId) return;
 
-  const work = await previewService.getWork(rjCode);
+  const work = await previewService.getWork(workId);
   const payload = buildPreviewMessage(work, message.channel.nsfw ?? false);
   await message.reply(payload);
 }
@@ -139,7 +139,7 @@ export async function handleMessageCreate(message: Message) {
 
 ### `extractRjCodes`
 
-- 単体 RJ コードを抽出できる
+- `RJ / BJ / VJ` の DLSite ID を抽出できる
 - 小文字や空白混在時の扱いを固定できる
 - 先頭 1 件処理方針を検証できる
 

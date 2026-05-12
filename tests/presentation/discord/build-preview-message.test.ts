@@ -3,28 +3,34 @@ import {
   buildFailureMessage,
   buildPreviewMessage,
 } from "../../../src/presentation/discord/build-preview-message";
-import type { DLSiteWork } from "../../../src/domain/rj/types";
+import type { WorkPreview } from "../../../src/domain/rj/types";
 import type { APIEmbed, JSONEncodable } from "discord.js";
 
-const sampleWork: DLSiteWork = {
+const sampleWork: WorkPreview = {
+  store: "dlsite",
   id: "RJ012345",
   title: "星巡りの耳かき",
   url: "https://example.com/RJ012345",
   makerName: "月明かりラボ",
+  ageCategory: "18禁",
+  isAdult: true,
   price: "1,320円",
   salePrice: "990円",
-  ageCategory: "18禁",
   releaseDate: "2025年01月15日",
   rating: "4.8 / 5",
   thumbnailUrl: "https://example.com/thumb.jpg",
   tags: ["ASMR", "癒やし"],
-  isAdult: true,
   author: "空音",
   scenario: "綾瀬ひかり",
   illustration: "青空しずく",
   voiceActors: ["高原鈴音"],
   fileFormat: "WAV",
   fileSize: "1.2GB",
+  parseCoverage: "full",
+  serviceName: null,
+  circleOrBrandLabel: "サークル",
+  rawAttributes: {},
+  parserName: "dlsite/default",
 };
 
 describe("buildPreviewMessage", () => {
@@ -45,11 +51,50 @@ describe("buildPreviewMessage", () => {
     expect(embed?.fields).toHaveLength(2);
     expect(embed?.thumbnail).toBeUndefined();
   });
+
+  it("always suppresses DMM family details in non-nsfw channels", () => {
+    const payload = buildPreviewMessage(
+      {
+        ...sampleWork,
+        store: "fanza_doujin",
+        id: "d_123456",
+        url: "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_123456/",
+      },
+      false,
+    );
+    const embed = toJsonEmbed(payload.embeds?.[0]);
+
+    expect(embed?.description).toContain("成人向け作品");
+    expect(embed?.fields?.[0]?.value).toBe("d_123456");
+  });
+
+  it("renders partial DMM previews safely in nsfw channels", () => {
+    const payload = buildPreviewMessage(
+      {
+        ...sampleWork,
+        store: "dmm_tv_av",
+        id: "midv00018",
+        parseCoverage: "partial",
+        thumbnailUrl: null,
+      },
+      true,
+    );
+    const embed = toJsonEmbed(payload.embeds?.[0]);
+
+    expect(embed?.description).toContain("一部の情報のみ取得できました。");
+    expect(embed?.thumbnail).toBeUndefined();
+  });
 });
 
 describe("buildFailureMessage", () => {
   it("builds a concise fallback reply", () => {
     expect(buildFailureMessage("RJ012345").content).toContain("RJ012345");
+  });
+
+  it("builds a FANZA URL guidance reply", () => {
+    expect(buildFailureMessage("d_743581", "fanza_url_required").content).toContain(
+      "URL付きで送信してください",
+    );
   });
 });
 

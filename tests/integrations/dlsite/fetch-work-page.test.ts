@@ -3,9 +3,15 @@ import { buildWorkUrl, fetchWorkPage } from "../../../src/integrations/dlsite/fe
 import { FetchWorkPageError } from "../../../src/integrations/dlsite/errors";
 
 describe("fetchWorkPage", () => {
-  it("builds the expected DLSite URL", () => {
+  it("builds the expected DLSite URL by prefix", () => {
     expect(buildWorkUrl("rj012345")).toBe(
       "https://www.dlsite.com/maniax/work/=/product_id/RJ012345.html",
+    );
+    expect(buildWorkUrl("BJ02519460")).toBe(
+      "https://www.dlsite.com/books/work/=/product_id/BJ02519460.html",
+    );
+    expect(buildWorkUrl("VJ01004728")).toBe(
+      "https://www.dlsite.com/pro/work/=/product_id/VJ01004728.html",
     );
   });
 

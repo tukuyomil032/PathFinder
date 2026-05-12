@@ -102,9 +102,9 @@ type DLSiteWork = {
   fileSize?: string | null;
 };
 
-declare function extractRjCodes(message: string): string[];
-declare function fetchWorkPage(rjCode: string): Promise<string>;
-declare function parseWork(html: string, rjCode: string): DLSiteWork;
+declare function extractRjCodes(message: string): string[]; // RJ/BJ/VJ を返す後方互換 wrapper
+declare function fetchWorkPage(workId: string): Promise<string>;
+declare function parseWork(html: string, workId: string): DLSiteWork;
 declare function buildPreviewMessage(
   work: DLSiteWork,
   channelIsNsfw: boolean,

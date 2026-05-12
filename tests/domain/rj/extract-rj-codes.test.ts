@@ -14,6 +14,14 @@ describe("extractRjCodes", () => {
     expect(extractRjCodes("rj123456 and RJ654321")).toEqual(["RJ123456", "RJ654321"]);
   });
 
+  it("keeps only DLSite ids even after non-RJ support was added", () => {
+    expect(extractRjCodes("BJ02519460 RJ012345 VJ01004728")).toEqual([
+      "BJ02519460",
+      "RJ012345",
+      "VJ01004728",
+    ]);
+  });
+
   it("returns an empty list when no RJ code exists", () => {
     expect(extractRjCodes("hello world")).toEqual([]);
   });

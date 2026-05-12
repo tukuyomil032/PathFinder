@@ -32,8 +32,12 @@ describe("parseWork", () => {
       illustration: "青空しずく",
       fileFormat: "WAV / MP3",
       fileSize: "1.2GB",
+      serviceName: "DLSite 同人",
+      circleOrBrandLabel: "サークル",
+      parserName: "dlsite/maniax",
     });
     expect(work.voiceActors).toEqual(["高原鈴音", "雨宮ひなた"]);
+    expect(work.rawAttributes).toEqual({ surface: "maniax" });
   });
 
   it("allows optional fields to be missing", () => {
@@ -44,6 +48,44 @@ describe("parseWork", () => {
     expect(work.voiceActors).toEqual([]);
     expect(work.fileFormat).toBeNull();
     expect(work.isAdult).toBe(false);
+  });
+
+  it("parses books fixtures with author-priority metadata", () => {
+    const html = readFixture("dlsite-books-work.html");
+    const work = parseWork(html, "BJ02519460");
+
+    expect(work).toMatchObject({
+      id: "BJ02519460",
+      title: "夜更かし読書会",
+      url: "https://www.dlsite.com/books/work/=/product_id/BJ02519460.html",
+      makerName: "朝霧栞",
+      ageCategory: "全年齢",
+      price: "880円",
+      thumbnailUrl: "https://img.dlsite.jp/books/BJ02519460_main.jpg",
+      serviceName: "DLSite Books",
+      circleOrBrandLabel: "著者",
+      parserName: "dlsite/books",
+    });
+    expect(work.rawAttributes).toEqual({ surface: "books" });
+  });
+
+  it("parses pro fixtures with brand metadata", () => {
+    const html = readFixture("dlsite-pro-work.html");
+    const work = parseWork(html, "VJ01004728");
+
+    expect(work).toMatchObject({
+      id: "VJ01004728",
+      title: "空色ステップ",
+      url: "https://www.dlsite.com/pro/work/=/product_id/VJ01004728.html",
+      makerName: "Lune Palette",
+      ageCategory: "18禁",
+      price: "7,920円",
+      thumbnailUrl: "https://img.dlsite.jp/pro/VJ01004728_main.jpg",
+      serviceName: "DLSite 美少女ゲーム",
+      circleOrBrandLabel: "ブランド",
+      parserName: "dlsite/pro",
+    });
+    expect(work.rawAttributes).toEqual({ surface: "pro" });
   });
 
   it("throws when required fields are missing", () => {
