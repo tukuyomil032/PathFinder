@@ -1,22 +1,28 @@
 import type { Message } from "discord.js";
 import { getEnv } from "../../config/env";
 import { createRjCache, type RjCache } from "../../domain/rj/cache";
-import { extractRjCodes } from "../../domain/rj/extract-rj-codes";
-import type { DLSiteWork } from "../../domain/rj/types";
-import { fetchWorkPage } from "../../integrations/dlsite/fetch-work-page";
-import { parseWork } from "../../integrations/dlsite/parse-work";
-import { buildFailureMessage, buildPreviewMessage } from "./build-preview-message";
+import { extractWorkReferences } from "../../domain/rj/extract-work-references";
+import { fetchWorkPage, parseWork, WorkPreviewResolutionError } from "../../domain/rj/resolve-work";
+import type { FetchedWorkPage, WorkPreview, WorkReference } from "../../domain/rj/types";
+import {
+  buildFailureMessage,
+  buildPreviewMessage,
+  type FailureMessageKind,
+} from "./build-preview-message";
 
 type MessageCreateDeps = {
   cache: RjCache;
-  fetchWorkPage: (rjCode: string) => Promise<string>;
-  parseWork: (html: string, rjCode: string) => DLSiteWork;
+  fetchWorkPage: (reference: WorkReference) => Promise<FetchedWorkPage>;
+  parseWork: (page: FetchedWorkPage, reference: WorkReference) => WorkPreview;
   buildPreviewMessage: (
-    work: DLSiteWork,
+    work: WorkPreview,
     channelIsNsfw: boolean,
   ) => ReturnType<typeof buildPreviewMessage>;
-  buildFailureMessage: (rjCode?: string) => ReturnType<typeof buildFailureMessage>;
-  log?: Pick<Console, "error">;
+  buildFailureMessage: (
+    workId?: string,
+    kind?: FailureMessageKind,
+  ) => ReturnType<typeof buildFailureMessage>;
+  log?: Partial<Pick<Console, "error" | "info">>;
 };
 
 type NsfwReadableChannel = {
@@ -55,26 +61,57 @@ export function createMessageHandler(deps: MessageCreateDeps) {
       return;
     }
 
-    const [rjCode] = extractRjCodes(message.content);
+    const [reference] = extractWorkReferences(message.content);
 
-    if (!rjCode) {
+    if (!reference) {
       return;
     }
 
     try {
-      const cachedWork = deps.cache.get(rjCode);
-      const work = cachedWork ?? deps.parseWork(await deps.fetchWorkPage(rjCode), rjCode);
+      const cachedWork = deps.cache.get(reference);
+      const shouldRefresh = shouldRefreshFromReference(cachedWork, reference);
+      const work =
+        cachedWork && !shouldRefresh
+          ? cachedWork
+          : deps.parseWork(await deps.fetchWorkPage(reference), reference);
 
-      if (!cachedWork) {
-        deps.cache.set(rjCode, work);
+      if (!cachedWork || shouldRefresh) {
+        deps.cache.set(reference, work);
       }
 
+      deps.log?.info?.("Resolved work preview", {
+        store: work.store,
+        id: work.id,
+        parseCoverage: work.parseCoverage,
+        parserName: work.parserName,
+        sourceUrl: reference.sourceUrl ?? null,
+      });
       await message.reply(deps.buildPreviewMessage(work, shouldAllowAdultDetails(message)));
     } catch (error) {
-      deps.log?.error("Failed to build RJ preview", error);
-      await message.reply(deps.buildFailureMessage(rjCode));
+      deps.log?.error?.("Failed to build work preview", error);
+      const failureKind = error instanceof WorkPreviewResolutionError ? error.code : undefined;
+      await message.reply(
+        failureKind
+          ? deps.buildFailureMessage(reference.id, failureKind)
+          : deps.buildFailureMessage(reference.id),
+      );
     }
   };
+}
+
+function shouldRefreshFromReference(
+  cachedWork: WorkPreview | null,
+  reference: WorkReference,
+): boolean {
+  if (!cachedWork || cachedWork.store !== reference.store || reference.store === "dlsite") {
+    return false;
+  }
+
+  if (cachedWork.parseCoverage !== "partial") {
+    return false;
+  }
+
+  return reference.kind === "url" && cachedWork.url !== reference.sourceUrl;
 }
 
 let runtimeHandler: ((message: Message) => Promise<void>) | null = null;

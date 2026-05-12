@@ -1,7 +1,8 @@
 import { load } from "cheerio";
 import type { CheerioAPI } from "cheerio";
-import type { DLSiteWork } from "../../domain/rj/types";
+import type { DLSiteSurface, DLSiteWork, WorkReference } from "../../domain/rj/types";
 import { ParseWorkError } from "./errors";
+import { buildWorkUrl } from "./fetch-work-page";
 
 type WorkJsonLd = {
   "@type"?: string;
@@ -11,7 +12,9 @@ type WorkJsonLd = {
   brand?: { name?: string };
 };
 
-export function parseWork(html: string, rjCode: string): DLSiteWork {
+export function parseWork(html: string, reference: WorkReference | string): DLSiteWork {
+  const workId = typeof reference === "string" ? reference : reference.id;
+  const surface = resolveSurface(workId);
   const $ = load(html);
   const jsonLd = readProductJsonLd($);
 
@@ -20,11 +23,9 @@ export function parseWork(html: string, rjCode: string): DLSiteWork {
   const url =
     jsonLd?.url ??
     readMetaContent($, "link[rel='canonical']") ??
-    readMetaContent($, "meta[property='og:url']");
-  const makerName =
-    jsonLd?.brand?.name ??
-    readText($, ".maker_name a") ??
-    readDefinitionValue($, ["サークル名", "ブランド名", "メーカー"]);
+    readMetaContent($, "meta[property='og:url']") ??
+    buildWorkUrl(workId);
+  const makerName = readMakerName($, surface, jsonLd?.brand?.name);
   const ageCategory = readText($, ".age_category") ?? readDefinitionValue($, ["年齢指定", "年齢"]);
 
   const missingFields = [
@@ -37,24 +38,26 @@ export function parseWork(html: string, rjCode: string): DLSiteWork {
   if (missingFields.length > 0) {
     throw new ParseWorkError(
       `Required DLSite fields are missing: ${missingFields.join(", ")}`,
-      rjCode,
+      workId,
     );
   }
 
   if (!title || !url || !makerName || !ageCategory) {
-    throw new ParseWorkError("Unexpected parser state", rjCode);
+    throw new ParseWorkError("Unexpected parser state", workId);
   }
 
   const work: DLSiteWork = {
-    id: rjCode.toUpperCase(),
+    store: "dlsite",
+    id: workId.toUpperCase(),
     title,
     url,
     makerName,
+    ageCategory,
+    isAdult: isAdultCategory(ageCategory),
     price: readText($, "[data-testid='work-price']") ?? readDefinitionValue($, ["価格"]),
     salePrice:
       readText($, "[data-testid='work-sale-price']") ??
       readDefinitionValue($, ["セール価格", "キャンペーン価格"]),
-    ageCategory,
     releaseDate: readDefinitionValue($, ["販売日", "発売日"]),
     rating: readText($, ".rating_average") ?? readDefinitionValue($, ["評価", "レビュー"]),
     thumbnailUrl: normalizeImageUrl(
@@ -63,16 +66,88 @@ export function parseWork(html: string, rjCode: string): DLSiteWork {
       readAttribute($, ".work_visual img", "src"),
     ),
     tags: readTags($),
-    isAdult: isAdultCategory(ageCategory),
     author: readDefinitionValue($, ["作者"]),
     scenario: readDefinitionValue($, ["シナリオ"]),
     illustration: readDefinitionValue($, ["イラスト"]),
     voiceActors: readListValue($, ["声優"]),
     fileFormat: readDefinitionValue($, ["ファイル形式"]),
     fileSize: readDefinitionValue($, ["ファイル容量", "容量"]),
+    parseCoverage: "full",
+    serviceName: resolveServiceName(surface),
+    circleOrBrandLabel: resolveMakerLabel(surface),
+    rawAttributes: { surface },
+    parserName: `dlsite/${surface}`,
   };
 
   return work;
+}
+
+function readMakerName(
+  $: CheerioAPI,
+  surface: DLSiteSurface,
+  jsonLdBrandName?: string,
+): string | null {
+  const selectorName = readText($, ".maker_name a");
+
+  if (selectorName) {
+    return selectorName;
+  }
+
+  if (surface === "books") {
+    return (
+      readDefinitionValue($, ["著者", "出版社", "レーベル"]) ??
+      jsonLdBrandName ??
+      readDefinitionValue($, ["サークル名", "ブランド名", "メーカー"])
+    );
+  }
+
+  if (surface === "pro") {
+    return (
+      readDefinitionValue($, ["ブランド", "ブランド名", "メーカー"]) ?? jsonLdBrandName ?? null
+    );
+  }
+
+  return (
+    readDefinitionValue($, ["サークル名", "ブランド名", "メーカー", "ブランド"]) ??
+    jsonLdBrandName ??
+    null
+  );
+}
+
+function resolveSurface(workId: string): DLSiteSurface {
+  if (workId.toUpperCase().startsWith("BJ")) {
+    return "books";
+  }
+
+  if (workId.toUpperCase().startsWith("VJ")) {
+    return "pro";
+  }
+
+  return "maniax";
+}
+
+function resolveServiceName(surface: DLSiteSurface): string {
+  if (surface === "books") {
+    return "DLSite Books";
+  }
+
+  if (surface === "pro") {
+    return "DLSite 美少女ゲーム";
+  }
+
+  return "DLSite 同人";
+}
+
+function resolveMakerLabel(surface: DLSiteSurface): string {
+  if (surface === "books") {
+    return "著者";
+  }
+
+  if (surface === "pro") {
+    return "ブランド";
+  }
+
+  return "サークル";
 }
 
 function readProductJsonLd($: CheerioAPI): WorkJsonLd | null {

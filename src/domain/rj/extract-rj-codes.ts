@@ -1,11 +1,8 @@
-const RJ_CODE_PATTERN = /\b(rj\d{6,8})\b/gi;
+import { extractWorkReferences } from "./extract-work-references";
 
+// Backward-compatible wrapper: now returns all supported DLSite ids, not only RJ codes.
 export function extractRjCodes(message: string): string[] {
-  const matches = message.match(RJ_CODE_PATTERN);
-
-  if (!matches) {
-    return [];
-  }
-
-  return matches.map((code) => code.toUpperCase());
+  return extractWorkReferences(message)
+    .filter((reference) => reference.store === "dlsite")
+    .map((reference) => reference.id);
 }

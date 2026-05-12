@@ -1,13 +1,13 @@
-import type { DLSiteWork } from "./types";
+import type { WorkPreview, WorkReference } from "./types";
 
 type CacheEntry = {
   expiresAt: number;
-  value: DLSiteWork;
+  value: WorkPreview;
 };
 
 export type RjCache = {
-  get(rjCode: string): DLSiteWork | null;
-  set(rjCode: string, work: DLSiteWork): void;
+  get(reference: WorkReference | string): WorkPreview | null;
+  set(reference: WorkReference | string, work: WorkPreview): void;
   clear(): void;
 };
 
@@ -15,8 +15,8 @@ export function createRjCache(ttlMs: number, now: () => number = Date.now): RjCa
   const store = new Map<string, CacheEntry>();
 
   return {
-    get(rjCode) {
-      const key = rjCode.toUpperCase();
+    get(reference) {
+      const key = toCacheKey(reference);
       const entry = store.get(key);
 
       if (!entry) {
@@ -30,8 +30,8 @@ export function createRjCache(ttlMs: number, now: () => number = Date.now): RjCa
 
       return entry.value;
     },
-    set(rjCode, work) {
-      store.set(rjCode.toUpperCase(), {
+    set(reference, work) {
+      store.set(toCacheKey(reference), {
         expiresAt: now() + ttlMs,
         value: work,
       });
@@ -40,4 +40,14 @@ export function createRjCache(ttlMs: number, now: () => number = Date.now): RjCa
       store.clear();
     },
   };
+}
+
+function toCacheKey(reference: WorkReference | string): string {
+  if (typeof reference === "string") {
+    return `dlsite:${reference.toUpperCase()}`;
+  }
+
+  const normalizedId =
+    reference.store === "dlsite" ? reference.id.toUpperCase() : reference.id.toLowerCase();
+  return `${reference.store}:${normalizedId}`;
 }
