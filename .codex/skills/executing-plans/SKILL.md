@@ -23,9 +23,10 @@ If branch or worktree creation is blocked by the sandbox, do not stall the task 
 1. Read plan file
 2. Re-read the current target files and reconcile them against the plan before editing, especially when the plan came from a previous agent or the worktree is already dirty
 3. When the plan extends URL extract/fetch logic across services, verify whether any target service uses query-string identifiers (for example `?content=`) and preserve them through normalization and tests rather than rebuilding URLs from `pathname` alone
-4. Review critically - identify any questions or concerns about the plan
-5. If concerns: Raise them with your human partner before starting
-6. If no concerns: Create TodoWrite and proceed
+4. When the plan adds alternate input formats for an existing identifier (for example prefixed forms or shorthand bare ids), verify that extraction, normalization, and handler tests all converge on one canonical internal id so cache keys and error routing remain stable
+5. Review critically - identify any questions or concerns about the plan
+6. If concerns: Raise them with your human partner before starting
+7. If no concerns: Create TodoWrite and proceed
 
 ### Step 2: Execute Tasks
 
