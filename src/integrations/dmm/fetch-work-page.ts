@@ -5,10 +5,10 @@ import type {
   WorkReference,
   WorkStore,
 } from "../../domain/rj/types";
+import { DmmHttpError, fetchDmmHtmlWithAgeCheck, isDmmAgeCheckHtml } from "./http-client";
 
 type FetchLike = typeof fetch;
 type DmmStore = Exclude<WorkStore, "dlsite">;
-type CookieJar = Map<string, string>;
 type ProductJsonLd = { "@type"?: string; url?: string };
 
 type FetchDmmWorkPageOptions = {
@@ -104,94 +104,28 @@ export async function resolveDmmWorkPage(
   options: FetchDmmWorkPageOptions & { targetUrl: string },
 ): Promise<FetchedWorkPage> {
   const normalizedId = normalizeDmmId(store, workId);
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const userAgent = options.userAgent ?? "Mozilla/5.0 DMM Preview Bot";
-  const cookies: CookieJar = new Map();
 
-  const initialResponse = await fetchWithCookies(fetchImpl, options.targetUrl, userAgent, cookies, {
-    store,
-    workId: normalizedId,
-  });
-
-  if (isRedirect(initialResponse.status)) {
-    const redirectUrl = readLocation(initialResponse, options.targetUrl);
-
-    if (!redirectUrl) {
-      throw new FetchDmmWorkPageError({
-        code: "unexpected_page",
-        message: `Redirect without location for ${normalizedId}`,
-        store,
-        workId: normalizedId,
-        status: initialResponse.status,
-      });
-    }
-
-    if (isAgeCheckUrl(redirectUrl)) {
-      await passAgeCheck(fetchImpl, redirectUrl, userAgent, cookies, {
-        store,
-        workId: normalizedId,
-      });
-      const workResponse = await fetchWithCookies(
-        fetchImpl,
-        options.targetUrl,
-        userAgent,
-        cookies,
-        {
-          store,
-          workId: normalizedId,
-        },
-      );
-      return buildResolvedWorkPage(
-        store,
-        options.targetUrl,
-        await workResponse.text(),
-        workResponse.status,
-      );
-    }
-
-    const redirectedResponse = await fetchWithCookies(fetchImpl, redirectUrl, userAgent, cookies, {
-      store,
-      workId: normalizedId,
+  try {
+    const result = await fetchDmmHtmlWithAgeCheck(options.targetUrl, {
+      fetchImpl: options.fetchImpl,
+      userAgent: options.userAgent,
     });
-    return buildResolvedWorkPage(
-      store,
-      redirectUrl,
-      await redirectedResponse.text(),
-      redirectedResponse.status,
-    );
-  }
 
-  const html = await initialResponse.text();
-  const page = buildResolvedWorkPage(store, options.targetUrl, html, initialResponse.status);
-
-  if (page.pageKind === "age_check") {
-    const ageCheckUrl = extractAgeCheckUrl(html);
-
-    if (ageCheckUrl) {
-      await passAgeCheck(fetchImpl, ageCheckUrl, userAgent, cookies, {
+    return buildResolvedWorkPage(store, result.fetchedUrl, result.html, result.status);
+  } catch (error) {
+    if (error instanceof DmmHttpError) {
+      throw new FetchDmmWorkPageError({
+        code: error.code,
+        message: error.message,
         store,
         workId: normalizedId,
+        status: error.status,
+        cause: error.cause,
       });
-      const workResponse = await fetchWithCookies(
-        fetchImpl,
-        options.targetUrl,
-        userAgent,
-        cookies,
-        {
-          store,
-          workId: normalizedId,
-        },
-      );
-      return buildResolvedWorkPage(
-        store,
-        options.targetUrl,
-        await workResponse.text(),
-        workResponse.status,
-      );
     }
-  }
 
-  return page;
+    throw error;
+  }
 }
 
 export function buildDmmCanonicalUrl(store: DmmStore, workId: string): string {
@@ -270,11 +204,7 @@ export function classifyDmmPage(store: DmmStore, html: string, fallbackUrl?: str
     fallbackUrl ??
     null;
 
-  if (
-    title === "年齢認証 - FANZA" ||
-    html.includes("age_check_done") ||
-    html.includes("あなたは18歳以上ですか？")
-  ) {
+  if (isDmmAgeCheckHtml(html)) {
     return "age_check";
   }
 
@@ -417,66 +347,6 @@ function buildUnresolvedPage(store: DmmStore, workId: string): FetchedWorkPage {
   };
 }
 
-async function passAgeCheck(
-  fetchImpl: FetchLike,
-  ageCheckUrl: string,
-  userAgent: string,
-  cookies: CookieJar,
-  context: { store: DmmStore; workId: string },
-): Promise<void> {
-  const declaredYesUrl = buildDeclaredYesUrl(ageCheckUrl);
-  const response = await fetchWithCookies(fetchImpl, declaredYesUrl, userAgent, cookies, context);
-
-  if (!cookies.has("age_check_done")) {
-    throw new FetchDmmWorkPageError({
-      code: "unexpected_page",
-      message: `DMM age check cookie was not set for ${context.workId}`,
-      store: context.store,
-      workId: context.workId,
-      status: response.status,
-    });
-  }
-}
-
-async function fetchWithCookies(
-  fetchImpl: FetchLike,
-  targetUrl: string,
-  userAgent: string,
-  cookies: CookieJar,
-  context: { store: DmmStore; workId: string },
-): Promise<Response> {
-  let response: Response;
-
-  try {
-    response = await fetchImpl(targetUrl, {
-      redirect: "manual",
-      headers: buildHeaders(userAgent, cookies),
-    });
-  } catch (error) {
-    throw new FetchDmmWorkPageError({
-      code: "network_error",
-      message: `Failed to fetch DMM page ${targetUrl}`,
-      store: context.store,
-      workId: context.workId,
-      cause: error,
-    });
-  }
-
-  storeCookies(response, cookies);
-
-  if (response.status >= 400) {
-    throw new FetchDmmWorkPageError({
-      code: "http_error",
-      message: `Unexpected status ${response.status} for ${targetUrl}`,
-      store: context.store,
-      workId: context.workId,
-      status: response.status,
-    });
-  }
-
-  return response;
-}
-
 function extractResolvedUrl(html: string): string | null {
   const $ = load(html);
 
@@ -485,20 +355,6 @@ function extractResolvedUrl(html: string): string | null {
     normalizeText($("link[rel='canonical']").attr("href")) ??
     normalizeText($("meta[property='og:url']").attr("content"))
   );
-}
-
-function extractAgeCheckUrl(html: string): string | null {
-  const $ = load(html);
-
-  for (const href of $("a[href]")
-    .map((_, node) => $(node).attr("href"))
-    .get()) {
-    if (href && isAgeCheckUrl(href)) {
-      return href;
-    }
-  }
-
-  return null;
 }
 
 function readProductJsonLd($: ReturnType<typeof load>): ProductJsonLd | null {
@@ -550,81 +406,6 @@ function matchesStoreUrl(store: DmmStore, url: string): boolean {
   } catch {
     return false;
   }
-}
-
-function buildHeaders(userAgent: string, cookies: CookieJar): HeadersInit {
-  const headers: Record<string, string> = {
-    "user-agent": userAgent,
-  };
-  const cookieHeader = serializeCookies(cookies);
-
-  if (cookieHeader) {
-    headers.cookie = cookieHeader;
-  }
-
-  return headers;
-}
-
-function serializeCookies(cookies: CookieJar): string | undefined {
-  if (cookies.size === 0) {
-    return undefined;
-  }
-
-  return Array.from(cookies.entries())
-    .map(([name, value]) => `${name}=${value}`)
-    .join("; ");
-}
-
-function storeCookies(response: Response, cookies: CookieJar): void {
-  for (const rawCookie of getSetCookieHeaders(response.headers)) {
-    for (const pair of rawCookie.matchAll(/(?:^|,)\s*([^=;,\s]+)=([^;,\r\n]*)/g)) {
-      const [, name, value] = pair;
-
-      if (name && value) {
-        cookies.set(name, value);
-      }
-    }
-  }
-}
-
-function getSetCookieHeaders(headers: Headers): string[] {
-  const getSetCookie = Reflect.get(headers, "getSetCookie");
-
-  if (typeof getSetCookie === "function") {
-    return getSetCookie.call(headers) as string[];
-  }
-
-  const raw = headers.get("set-cookie");
-  return raw ? [raw] : [];
-}
-
-function isRedirect(status: number): boolean {
-  return status >= 300 && status < 400;
-}
-
-function readLocation(response: Response, baseUrl: string): string | null {
-  const location = response.headers.get("location");
-
-  if (!location) {
-    return null;
-  }
-
-  return new URL(location, baseUrl).toString();
-}
-
-function isAgeCheckUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname === "www.dmm.co.jp" && /\/age_check\//.test(parsed.pathname);
-  } catch {
-    return false;
-  }
-}
-
-function buildDeclaredYesUrl(ageCheckUrl: string): string {
-  const url = new URL(ageCheckUrl);
-  url.pathname = "/age_check/=/declared=yes/";
-  return url.toString();
 }
 
 function normalizeText(value: string | null | undefined): string | null {
