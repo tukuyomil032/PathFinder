@@ -4,25 +4,54 @@ import {
   HELP_COMMAND_OPTION_NAME,
   PREVIEW_INPUT_OPTION_NAME,
   resolvePreviewReference,
+  resolveSearchQuery,
+  SEARCH_OPTION_NAMES,
 } from "./command-definitions";
 import {
   getRuntimePreviewRuntime,
   shouldAllowAdultDetails,
   type PreviewRuntime,
 } from "./preview-runtime";
+import { getRuntimeSearchRuntime, type SearchRuntime } from "./search-runtime";
 
 type InteractionCreateDeps = {
   previewRuntime: PreviewRuntime;
+  searchRuntime: SearchRuntime;
 };
 
 export function createInteractionHandler(deps: InteractionCreateDeps) {
   return async function handleInteractionCreate(interaction: Interaction): Promise<void> {
+    if (interaction.isButton()) {
+      if (interaction.customId.startsWith("search:")) {
+        await deps.searchRuntime.handleButton(interaction);
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) {
       return;
     }
 
     if (interaction.commandName === "help") {
       await replyHelp(interaction);
+      return;
+    }
+
+    if (interaction.commandName === "search") {
+      const query = resolveSearchQuery({
+        store: interaction.options.getString(SEARCH_OPTION_NAMES.store, true),
+        keyword: interaction.options.getString(SEARCH_OPTION_NAMES.keyword, true),
+        sort: interaction.options.getString(SEARCH_OPTION_NAMES.sort, false),
+        priceMin: interaction.options.getInteger(SEARCH_OPTION_NAMES.priceMin, false),
+        priceMax: interaction.options.getInteger(SEARCH_OPTION_NAMES.priceMax, false),
+        circle: interaction.options.getString(SEARCH_OPTION_NAMES.circle, false),
+      });
+
+      await deps.searchRuntime.resolve(
+        query,
+        interaction,
+        shouldAllowAdultDetails(interaction.channel as never),
+      );
       return;
     }
 
@@ -61,6 +90,7 @@ let runtimeHandler: ((interaction: Interaction) => Promise<void>) | null = null;
 function getRuntimeHandler() {
   runtimeHandler ??= createInteractionHandler({
     previewRuntime: getRuntimePreviewRuntime(),
+    searchRuntime: getRuntimeSearchRuntime(),
   });
 
   return runtimeHandler;
