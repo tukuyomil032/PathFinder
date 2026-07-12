@@ -123,6 +123,15 @@ describe("buildRandomResultMessage", () => {
     expect(serialized).toContain("高原鈴音");
   });
 
+  it("falls back to the unknown-price label instead of the literal string null when only a sale price is present", () => {
+    const results = [resolved({ price: null, salePrice: "990円" })];
+    const payload = buildRandomResultMessage(session(results), true);
+    const serialized = JSON.stringify(flattenComponents(payload));
+
+    expect(serialized).toContain("不明（セール: 990円）");
+    expect(serialized).not.toContain("null");
+  });
+
   it("shows an author line instead of voiceActors when voiceActors is empty", () => {
     const results = [resolved({ voiceActors: [], author: "鳥居ヨシツナ" })];
     const payload = buildRandomResultMessage(session(results), true);
@@ -154,19 +163,39 @@ describe("buildRandomResultMessage", () => {
 
   it("renders only the current index's work in the detail block", () => {
     const results = [
-      resolved({ id: "RJ1", title: "1番目の作品", url: "https://example.com/RJ1" }),
-      resolved({ id: "RJ2", title: "2番目の作品", url: "https://example.com/RJ2" }),
+      resolved({
+        id: "RJ1",
+        title: "1番目の作品",
+        url: "https://example.com/RJ1",
+        thumbnailUrl: "https://img.example.com/RJ1.jpg",
+      }),
+      resolved({
+        id: "RJ2",
+        title: "2番目の作品",
+        url: "https://example.com/RJ2",
+        thumbnailUrl: "https://img.example.com/RJ2.jpg",
+      }),
     ];
 
-    const first = JSON.stringify(
-      flattenComponents(buildRandomResultMessage(session(results, 0), true)),
-    );
-    const second = JSON.stringify(
-      flattenComponents(buildRandomResultMessage(session(results, 1), true)),
-    );
+    const firstContainer = flattenComponents(buildRandomResultMessage(session(results, 0), true));
+    const secondContainer = flattenComponents(buildRandomResultMessage(session(results, 1), true));
+    const first = JSON.stringify(firstContainer);
+    const second = JSON.stringify(secondContainer);
 
     expect(first).toContain("1 / 2件目");
     expect(second).toContain("2 / 2件目");
+
+    // まとめブロックには両作品が常に含まれるため、件数表示だけでなく詳細ブロック
+    // （Thumbnailアクセサリ）の実内容がcurrentIndexの1件だけであることも検証する。
+    const firstSection = firstContainer.components.find(
+      (c) => (c as { type: number }).type === ComponentType.Section,
+    ) as { accessory: { media: { url: string } } } | undefined;
+    const secondSection = secondContainer.components.find(
+      (c) => (c as { type: number }).type === ComponentType.Section,
+    ) as { accessory: { media: { url: string } } } | undefined;
+
+    expect(firstSection?.accessory.media.url).toBe("https://img.example.com/RJ1.jpg");
+    expect(secondSection?.accessory.media.url).toBe("https://img.example.com/RJ2.jpg");
   });
 
   it("uses a Section with a Thumbnail accessory when thumbnailUrl is present", () => {

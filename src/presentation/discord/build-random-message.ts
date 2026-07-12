@@ -196,7 +196,8 @@ function buildCreditLine(work: WorkPreview): string | null {
 }
 
 function formatPrice(work: WorkPreview): string {
-  return work.salePrice ? `${work.price}（セール: ${work.salePrice}）` : (work.price ?? "不明");
+  const regularPrice = work.price ?? "不明";
+  return work.salePrice ? `${regularPrice}（セール: ${work.salePrice}）` : regularPrice;
 }
 
 function buildPaginationRow(
