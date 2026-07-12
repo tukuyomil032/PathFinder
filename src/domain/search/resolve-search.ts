@@ -43,10 +43,11 @@ async function applyCircleFilter(page: RawSearchPage, query: SearchQuery): Promi
   const matched = page.items.find((item) => item.makerName?.toLowerCase().includes(circleNeedle));
 
   if (!matched?.makerId) {
-    const filtered = page.items.filter((item) =>
-      item.makerName?.toLowerCase().includes(circleNeedle),
-    );
-    return { items: filtered, hasNext: false, totalCount: filtered.length };
+    // サークルがまだ見つかっていない: このページではアイテムを返さず、
+    // hasNext は元のページの値をそのまま伝播して ensureBuffer のループが
+    // 次の rawPage も探索を続けられるようにする（さもないと1ページ目
+    // （約30件）だけで見つからなければ常に0件扱いになってしまう）。
+    return { items: [], hasNext: page.hasNext, totalCount: null };
   }
 
   const circleHtml = await fetchCircleProfilePage(query.target, matched.makerId);

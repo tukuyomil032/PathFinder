@@ -78,7 +78,25 @@ describe("resolveSearchFetcher circle resolution", () => {
     expect(page.hasNext).toBe(false);
   });
 
-  it("falls back to filtering the initial page when no matching circle is found", async () => {
+  it("propagates the upstream hasNext flag when the circle hasn't been found yet, so callers can keep paging", async () => {
+    fetchSearchAjaxPage.mockResolvedValueOnce({
+      searchResultHtml: ajaxHtmlWithItems([
+        { id: "RJ00000001", title: "無関係の作品", makerName: "別サークル", makerId: "RG00000001" },
+      ]),
+      totalCount: 100,
+      firstIndice: 1,
+      lastIndice: 30,
+    });
+
+    const fetcher = resolveSearchFetcher("dlsite_maniax");
+    const page = await fetcher({ ...baseQuery, circle: "beebee" }, 1);
+
+    expect(page.items).toEqual([]);
+    expect(page.hasNext).toBe(true);
+    expect(fetchCircleProfilePage).not.toHaveBeenCalled();
+  });
+
+  it("returns no items and hasNext:false once upstream pages are exhausted without a match", async () => {
     fetchSearchAjaxPage.mockResolvedValueOnce({
       searchResultHtml: ajaxHtmlWithItems([
         { id: "RJ00000001", title: "無関係の作品", makerName: "別サークル", makerId: "RG00000001" },
@@ -93,5 +111,6 @@ describe("resolveSearchFetcher circle resolution", () => {
 
     expect(fetchCircleProfilePage).not.toHaveBeenCalled();
     expect(page.items).toEqual([]);
+    expect(page.hasNext).toBe(false);
   });
 });
