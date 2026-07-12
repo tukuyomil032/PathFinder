@@ -4,10 +4,6 @@ import {
   ButtonStyle,
   ContainerBuilder,
   MessageFlags,
-  SectionBuilder,
-  SeparatorBuilder,
-  TextDisplayBuilder,
-  ThumbnailBuilder,
   type MessageActionRowComponentBuilder,
   type MessageCreateOptions,
 } from "discord.js";
