@@ -14,6 +14,7 @@
 - `/fanza av input:<string>`
 - `/fanza game input:<string>`
 - `/fanza book input:<string>`
+- `/random [store] [keyword]`
 - `/help [command]`
 
 ## 3. Accepted Input Formats
@@ -31,6 +32,14 @@
 - `game`: `spal_0201` または `https://dlsoft.dmm.co.jp/detail/spal_0201/`
 - `book`: `b915awnmg04288` または `https://book.dmm.co.jp/product/123456/b915awnmg04288/`
 
+### `/random`
+
+- `store`: DLsite同人/Books/pro、FANZA同人/PCゲーム/BOOKSの6択（任意、省略時は実装済みのstoreからランダム）
+- `keyword`: 任意。指定するとその語にヒットする作品群からランダムに1件選ぶ（`/search`と同じ絞り込み）
+- 両方省略すると、対象storeの全カタログブラウズ・ジャンルfacet・サークルfacetのいずれかをランダムに選んで抽選する
+  - ジャンル/サークルfacetはBot使用実績が溜まるほど候補が増える（起動直後はブラウズのみ）
+- 価格帯・声優はランダム抽選の対象外
+
 ## 4. Success Examples
 
 - `/dlsite maniax input:RJ012345`
@@ -39,6 +48,9 @@
 - `/fanza av input:https://tv.dmm.co.jp/detail/?content=mide00924`
 - `/help`
 - `/help fanza`
+- `/random`
+- `/random store:dlsite_maniax`
+- `/random store:fanza_doujin keyword:ロリ`
 
 ## 5. Failure Examples
 
@@ -48,6 +60,10 @@
   - `game` は `spal_0201` のような slug または FANZA GAMES URL のみ受け付ける。
 - `/fanza doujin input:d123456`
   - bare ID から canonical URL を解決できない場合、通常失敗ではなく URL 付き送信の案内を返す。
+- `/random store:fanza_doujin keyword:<該当0件になる語>`
+  - 抽選候補が0件のため、該当する作品が見つからなかった旨のメッセージを返す（リトライしない）。
+- `/random store:fanza_pcgame`
+  - FANZA PCゲーム/BOOKSは検索フェッチャー未実装のため、`/search`と同じ汎用エラーになる（既知の制限）。
 
 ## 6. NSFW Visibility
 
@@ -56,6 +72,7 @@
 - 非NSFWチャンネルでは DLSite 成人向け作品の詳細を抑制する。
 - 非NSFWチャンネルでは DMM family 全体を最小情報表示に倒す。
 - NSFWチャンネルでは通常の詳細 Embed を返す。
+- `/random`はstore単位の粗いNSFWゲート（`dlsite_maniax`以外は成人向け前提）を通過した後、個別作品はプレビューと同じ作品単位マスキングに従う。
 
 ## 7. Auto Detection vs Slash Commands
 

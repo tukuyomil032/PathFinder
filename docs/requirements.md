@@ -30,6 +30,7 @@
 - 1 メッセージに複数の参照が含まれても先頭 1 件のみ処理する。
 - 作品ページから作品概要を取得し、Discord Embed に整形して返信する。
 - Slash Command から同じプレビュー処理を明示実行できる。
+- `/random` で store・keyword未指定でもDLSite/FANZAの実在作品からランダムに1件出会える。
 - NSFW チャンネルでは詳細表示、非 NSFW チャンネルでは成人向け作品の詳細を抑制する。
 - 作品情報の短時間メモリキャッシュを持つ。
 - `.env` を正本として設定を注入し、起動時に厳格検証する。
@@ -88,6 +89,18 @@
 - 不正入力時は、そのコマンド系統に対応した短い usage を返す。
 - `/help` は全体一覧、入力フォーマット、代表例、NSFW 挙動を返し、`command` 指定時は対象 command だけ詳しく返す。
 - `/help` は `ephemeral`、プレビュー系 command は通常返信とする。
+
+### 4.2.2 `/random` Command
+
+- `/random [store] [keyword]` を提供する。`store`・`keyword` はいずれも任意。
+- `store` 省略時は、検索フェッチャーが実装済みの target（DLsite同人/Books/pro、FANZA同人）からランダムに選ぶ。
+- `keyword` 指定時はその語にヒットする作品群からランダムに選ぶ（`/search` と同じ挙動、facetによる上書きはしない）。
+- `keyword` 省略時は「store全体からの無条件ブラウズ」「ジャンルfacet」「サークルfacet」のいずれかを乱数で選んで抽選する。
+  - ジャンルfacet: DLsite/FANZAが公開しているジャンル/タグ一覧ページから取得したジャンルIDで絞り込む。
+  - サークルfacet: `/random`・`/search`・`/dlsite`・`/fanza` の実行結果から実在確認済みのサークル/ブランドIDで絞り込む。プロセス起動直後やまだ使われていないstoreはプールが空のため、ブラウズのみにフォールバックする。
+- 価格帯・声優はランダム抽選対象に含めない。
+- 抽選で選ばれた作品の取得・整形は既存のプレビューパイプライン（`fetchWorkPage` / `parseWork` / `buildPreviewMessage`）をそのまま使う。
+- 個別作品取得に失敗した場合は候補クエリを再構成しながら最大3回リトライする。
 
 ### 4.3 Parsing
 
@@ -160,6 +173,8 @@
 | `CACHE_TTL_MS` | Yes | メモリキャッシュ TTL |
 | `DLSITE_USER_AGENT` | Yes | DLSite 取得用 User-Agent |
 | `NSFW_STRICT_MODE` | Yes | 成人向け表示制御の厳格化フラグ |
+| `SEARCH_SESSION_TTL_MS` | No (default 600000) | `/search` 検索セッション・ページングボタンのTTL |
+| `RANDOM_GENRE_CACHE_TTL_MS` | No (default 86400000) | `/random` ジャンルマスターリストのキャッシュTTL |
 
 ## 7. Use Cases
 
@@ -181,6 +196,10 @@
 1. ユーザーが `/help fanza` を実行する。
 2. Bot が FANZA 系サブコマンド、入力形式、代表例、NSFW 挙動を `ephemeral` で返す。
 
+1. ユーザーが `/random`（オプションなし）を実行する。
+2. Bot が実装済みtargetからstoreをランダムに選び、ジャンル/サークルfacetまたは無条件ブラウズからランダムに1件抽選する。
+3. Bot が抽選した作品の詳細を、通常のプレビューと同じ形式で返信する。
+
 ### 異常系
 
 1. 作品参照はあるがページ取得に失敗する。
@@ -196,6 +215,12 @@
 
 1. 1 メッセージ内に複数の参照がある。
 2. 先頭 1 件のみ処理し、残りは無視する。
+
+1. `/random` の抽選候補（母集団）が0件になる keyword が指定される。
+2. Bot はリトライせず、該当する作品が見つからなかった旨のメッセージを返す。
+
+1. `/random` で抽選された作品の個別ページ取得に失敗する（削除済み等）。
+2. Bot は候補クエリを再構成しながら最大3回リトライし、それでも失敗すれば汎用の失敗メッセージを返す。
 
 ## 8. Failure Response Policy
 
@@ -220,6 +245,7 @@
 - `fanza_url_required` を含む失敗時応答方針が固定されている。
 - 先頭 1 件処理と `WorkReference(store + id)` 単位キャッシュが明示されている。
 - Slash Command surface、usage、`ephemeral` 方針が定義されている。
+- `/random` のstore/keyword省略時の抽選方針（ブラウズ/ジャンルfacet/サークルfacet）とリトライ・失敗方針が定義されている。
 - 運用上の外部依存と主要リスクが文書内で明示されている。
 
 ## 11. Agent Operation Notes

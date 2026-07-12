@@ -41,6 +41,9 @@ flowchart LR
 - Discord Embed 生成
 - NSFW 判定
 - `generic` / `fanza_url_required` の失敗応答組み立て
+- `/search` セッション管理・ページングボタン（`search-runtime.ts`）
+- `/random` の抽選クエリ組み立てとプレビューパイプラインへの橋渡し（`random-runtime.ts`）
+- `/random` 用circlePool/genrePoolのプロセス単位シングルトン共有（`shared-random-pools.ts`）
 
 ### `src/domain/rj`
 
@@ -50,12 +53,25 @@ flowchart LR
 - 共通ドメイン型の定義
 - キャッシュインターフェース
 
+### `src/domain/search`
+
+- `/search` のクエリ型（`SearchQuery`）とstore別フェッチャーディスパッチ（`resolveSearchFetcher`、実装済みtarget一覧`IMPLEMENTED_SEARCH_TARGETS`）
+- circle（サークル名）2段階解決ロジック
+- 検索セッションのTTLキャッシュ
+
+### `src/domain/random`
+
+- `/random` のランダム抽選アルゴリズム（`pick-random-work.ts`: 1ページ目取得→総件数からランダムページ算出→そのページ内で乱選）
+- ジャンルマスターリストのTTLキャッシュ（`genre-pool.ts`）
+- 実行結果から収集するサークル/ブランドのインメモリプール（`circle-pool.ts`）
+
 ### `src/integrations/dlsite`
 
 - DLSite URL 生成
 - HTTP 取得
 - `cheerio` による HTML 解析
 - DLSite 固有の DOM 依存処理
+- 検索AJAXエンドポイント・サークル一覧・ジャンルマスターリストの取得/解析
 
 ### `src/integrations/dmm`
 
@@ -63,6 +79,7 @@ flowchart LR
 - 年齢確認を含む HTTP 取得
 - `cheerio` による HTML 解析
 - FANZA同人 / DMM TV / FANZA PCゲーム / FANZA BOOKS の DOM 依存処理
+- FANZA同人の検索URL・ブランド一覧・ジャンル/タグマスターリストの取得/解析
 
 ### `src/config`
 
@@ -83,6 +100,8 @@ src/
   config/
   domain/
     rj/
+    search/
+    random/
   integrations/
     dlsite/
     dmm/
@@ -160,6 +179,17 @@ declare function buildPreviewMessage(
 - `DISCORD_GUILD_ID` がない場合は global commands を登録する。
 - command 定義は `discord.js` 標準の builder で 1 箇所に集約する。
 
+## 6.2 Random Discovery Strategy
+
+`/random` は「有効な作品IDの候補プールをどう集めるか」という問題を、ID乱数生成ではなく `/search` の検索結果一覧を母集団として使うことで解決する。
+
+- **ブラウズ**: DLsite/FANZA同人の検索URLビルダーはkeyword省略時に全件ブラウズURL（keywordセグメント自体を省略）を組み立てられる。1ページ目の総件数からランダムなページ番号を算出し、そのページ内で1件選ぶ（`pick-random-work.ts`）。
+- **ジャンルfacet**: DLsite（`/{surface}/genre/list`）・FANZA同人（`/dc/doujin/-/genre/`）が公開するジャンル/タグ一覧ページを取得し、`genre-pool.ts`が24時間TTLでキャッシュする。取得失敗時は空リストにフォールバックし、ジャンルfacetは自動的に候補から除外される。
+- **サークルfacet**: 専用の一覧ページが存在しないため、`/random`・`/search`・`/dlsite`・`/fanza`の実行結果から実在確認済みのサークル/ブランド（makerId + makerName）を`circle-pool.ts`が収集する。プールに入る値は必ず過去に実在が確認できた値のため、無効な値を抽選するリスクが構造的に発生しない。
+- store・keywordを明示指定した場合は、facetによる上書きをせずそのまま検索する（`/search`と同じ予測可能な挙動）。
+- 抽選結果は`SearchResultItem`が既に保持する実URLを使って`WorkReference(kind:"url")`を組み立て、既存のプレビューパイプライン（`fetchWorkPage` / `parseWork` / `buildPreviewMessage`）へそのまま渡す。
+- 個別作品取得の失敗（削除済み等）に備え、候補クエリを再構成しながら最大3回リトライする。
+
 ## 7. NSFW Policy
 
 - DLSite と DMM family の双方で `isAdult` を判定対象にする。
@@ -204,6 +234,8 @@ declare function buildPreviewMessage(
 - HTML 全体を正規表現だけで解析しない。
 - NSFW 判定なしで常に詳細を返さない。
 - 短命メモリキャッシュのため、プロセス再起動でキャッシュ消失する前提を受け入れる。
+- `/random`のサークルプールもインメモリのため、プロセス再起動直後はブラウズ抽選のみに戻る（使うほど条件付きランダムの幅が広がる設計として受け入れる）。
+- `/random`のジャンルfacetはDLsite同人・FANZA同人のみ対応（他storeは一覧ページ有無を要確認）。声優・価格帯はランダム抽選対象に含めない。
 
 ## 13. Agent Operations
 
