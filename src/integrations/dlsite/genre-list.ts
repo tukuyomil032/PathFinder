@@ -44,6 +44,7 @@ export async function fetchGenreList(
   const fetchImpl = options.fetchImpl ?? fetch;
   const response = await fetchImpl(buildGenreListUrl(surface), {
     headers: { "user-agent": options.userAgent ?? getEnv().DLSITE_USER_AGENT },
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (!response.ok) {

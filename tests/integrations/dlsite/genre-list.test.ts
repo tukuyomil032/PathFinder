@@ -45,6 +45,7 @@ describe("fetchGenreList", () => {
     expect(items).toHaveLength(3);
     expect(fetchImpl).toHaveBeenCalledWith("https://www.dlsite.com/maniax/genre/list", {
       headers: { "user-agent": "test-agent" },
+      signal: expect.any(AbortSignal),
     });
   });
 
