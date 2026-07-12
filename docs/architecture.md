@@ -42,7 +42,7 @@ flowchart LR
 - NSFW 判定
 - `generic` / `fanza_url_required` の失敗応答組み立て
 - `/search` セッション管理・ページングボタン（`search-runtime.ts`）
-- `/random` の抽選クエリ組み立てとプレビューパイプラインへの橋渡し（`random-runtime.ts`）
+- `/random` の複数件（最大5件）並列抽選・セッション管理・ページングボタン・Discord Components V2メッセージ組み立てとプレビューパイプラインへの橋渡し（`random-runtime.ts`, `build-random-message.ts`）
 - `/random` 用circlePool/genrePoolのプロセス単位シングルトン共有（`shared-random-pools.ts`）
 
 ### `src/domain/rj`
@@ -64,6 +64,7 @@ flowchart LR
 - `/random` のランダム抽選アルゴリズム（`pick-random-work.ts`: 1ページ目取得→総件数からランダムページ算出→そのページ内で乱選）
 - ジャンルマスターリストのTTLキャッシュ（`genre-pool.ts`）
 - 実行結果から収集するサークル/ブランドのインメモリプール（`circle-pool.ts`）
+- 複数件結果のページングセッション用TTLキャッシュ（`random-session-cache.ts`。`domain/search/session-cache.ts`と同型、`RandomSession`/`RandomResolvedWork`型を定義）
 
 ### `src/integrations/dlsite`
 
@@ -187,8 +188,23 @@ declare function buildPreviewMessage(
 - **ジャンルfacet**: DLsite（`/{surface}/genre/list`）・FANZA同人（`/dc/doujin/-/genre/`）が公開するジャンル/タグ一覧ページを取得し、`genre-pool.ts`が24時間TTLでキャッシュする。取得失敗時は空リストにフォールバックし、ジャンルfacetは自動的に候補から除外される。
 - **サークルfacet**: 専用の一覧ページが存在しないため、`/random`・`/search`・`/dlsite`・`/fanza`の実行結果から実在確認済みのサークル/ブランド（makerId + makerName）を`circle-pool.ts`が収集する。プールに入る値は必ず過去に実在が確認できた値のため、無効な値を抽選するリスクが構造的に発生しない。
 - store・keywordを明示指定した場合は、facetによる上書きをせずそのまま検索する（`/search`と同じ予測可能な挙動）。
-- 抽選結果は`SearchResultItem`が既に保持する実URLを使って`WorkReference(kind:"url")`を組み立て、既存のプレビューパイプライン（`fetchWorkPage` / `parseWork` / `buildPreviewMessage`）へそのまま渡す。
-- 個別作品取得の失敗（削除済み等）に備え、候補クエリを再構成しながら最大3回リトライする。
+- 抽選結果は`SearchResultItem`が既に保持する実URLを使って`WorkReference(kind:"url")`を組み立て、既存のプレビューパイプライン（`fetchWorkPage` / `parseWork`）へそのまま渡す。
+
+### 6.2.1 Batch Resolution（複数件並列抽選）
+
+- `random-runtime.ts`の`resolveBatch`が、`RANDOM_BATCH_TARGET_COUNT`（5）件を並列ワーカープールで抽選する。各workerは独立して`attemptOnce`（候補クエリ組み立て→抽選→作品詳細取得の1回分）を繰り返し、目標件数に達するか合計試行回数の上限（5件×3回=15回）に達するまでループする。
+- 個別の枠が失敗した場合、そのworkerは自動的に新しい候補で再試行する（＝部分失敗の埋め合わせ。全体を失敗にしない）。
+- `reserved`カウンタをawaitを挟まず同期的にインクリメント/デクリメントすることで、複数workerが同時に目標件数を超えて予約してしまう競合状態を防いでいる。
+- 上限に達しても目標件数に届かない場合は、その時点で集まった件数（0件のこともある）をそのまま返す。0件の場合のみ「該当なし」または「汎用エラー」メッセージを返す。
+
+### 6.2.2 Result Session and Components V2 UI
+
+- 抽選結果（`RandomResolvedWork[]`、最大5件）は`random-session-cache.ts`（`domain/search/session-cache.ts`と同型のTTLキャッシュ）に`RandomSession{token, results, currentIndex, channelId, messageId}`として保存する。
+- 表示は`build-random-message.ts`がDiscord Components V2（`MessageFlags.IsComponentsV2`）で組み立てる。`ContainerBuilder`1個に「まとめブロック（全件、サムネイルなし、商品名へのMarkdownハイパーリンク＋サークル・価格・発売日・評価・声優/著者）」→区切り→「詳細ブロック（`currentIndex`が指す1件のみ、サムネイルがあれば`SectionBuilder`+`ThumbnailBuilder`、無ければ`TextDisplayBuilder`のみへフォールバック）」→ページングボタン（`ActionRowBuilder`）を積む。
+- `IsComponentsV2`フラグは一度付与すると解除できないため、通常表示・ページング更新・アイドルタイムアウトによるdisabled化のいずれでも必ず付与する。
+- Prev/Nextボタン（`random:{token}:prev|next`）は`currentIndex`の入れ替えのみで完結し、5件は事前に全件解決済みのため上流への再フェッチは発生しない（`/search`の「次へ」と異なり`deferUpdate`も不要）。
+- NSFW抑制は`build-preview-message.ts`の`shouldSuppress`を共有し、まとめブロック・詳細ブロックの両方で作品単位に適用する（非NSFWチャンネルの成人向け作品はタイトル・URLのみに抑制）。
+- アイドルタイムアウトは`/search`と同じ`Map<token, Timer>`パターンで実装し、失効時は`buildDisabledRandomMessage`で両ボタンを無効化する。
 
 ## 7. NSFW Policy
 
@@ -236,6 +252,8 @@ declare function buildPreviewMessage(
 - 短命メモリキャッシュのため、プロセス再起動でキャッシュ消失する前提を受け入れる。
 - `/random`のサークルプールもインメモリのため、プロセス再起動直後はブラウズ抽選のみに戻る（使うほど条件付きランダムの幅が広がる設計として受け入れる）。
 - `/random`のジャンルfacetはDLsite同人・FANZA同人のみ対応（他storeは一覧ページ有無を要確認）。声優・価格帯はランダム抽選対象に含めない。
+- `/random`の複数件抽選は近似的な一様分布であり厳密な全件一様ランダムではない（`pick-random-work.ts`と同じ制約）。5件に満たない部分成功でもエラーにせず表示し、件数不足を明示するUIは持たない。
+- `/random`のComponents V2表示は`/random`にのみ適用し、`/search` / `/dlsite` / `/fanza`は既存のEmbedベースのまま変更しない（`IsComponentsV2`はメッセージ単位のフラグで一度付与すると解除できないため）。
 
 ## 13. Agent Operations
 
