@@ -59,12 +59,7 @@ export async function fetchDmmHtmlWithAgeCheck(
 
     if (isDmmAgeCheckUrl(redirectUrl)) {
       await passDmmAgeCheck(fetchImpl, redirectUrl, userAgent, cookies);
-      const workResponse = await fetchWithCookies(fetchImpl, targetUrl, userAgent, cookies);
-      return {
-        html: await workResponse.text(),
-        fetchedUrl: targetUrl,
-        status: workResponse.status,
-      };
+      return fetchFollowingOneRedirect(fetchImpl, targetUrl, userAgent, cookies);
     }
 
     const redirectedResponse = await fetchWithCookies(fetchImpl, redirectUrl, userAgent, cookies);
@@ -82,16 +77,41 @@ export async function fetchDmmHtmlWithAgeCheck(
 
     if (ageCheckUrl) {
       await passDmmAgeCheck(fetchImpl, ageCheckUrl, userAgent, cookies);
-      const workResponse = await fetchWithCookies(fetchImpl, targetUrl, userAgent, cookies);
-      return {
-        html: await workResponse.text(),
-        fetchedUrl: targetUrl,
-        status: workResponse.status,
-      };
+      return fetchFollowingOneRedirect(fetchImpl, targetUrl, userAgent, cookies);
     }
   }
 
   return { html, fetchedUrl: targetUrl, status: initialResponse.status };
+}
+
+/**
+ * 年齢確認突破後に targetUrl を再取得する。DMM 側は URL 正規化のため
+ * targetUrl 自体が別URLへ 301/302 リダイレクトされることがある
+ * （例: FANZA同人検索の page=1 は常に省略先URLへ301される）ため、
+ * そのリダイレクトも1回だけ追従する。
+ */
+async function fetchFollowingOneRedirect(
+  fetchImpl: FetchLike,
+  targetUrl: string,
+  userAgent: string,
+  cookies: CookieJar,
+): Promise<FetchedDmmHtml> {
+  const response = await fetchWithCookies(fetchImpl, targetUrl, userAgent, cookies);
+
+  if (isRedirectStatus(response.status)) {
+    const redirectUrl = readRedirectLocation(response, targetUrl);
+
+    if (redirectUrl) {
+      const redirectedResponse = await fetchWithCookies(fetchImpl, redirectUrl, userAgent, cookies);
+      return {
+        html: await redirectedResponse.text(),
+        fetchedUrl: redirectUrl,
+        status: redirectedResponse.status,
+      };
+    }
+  }
+
+  return { html: await response.text(), fetchedUrl: targetUrl, status: response.status };
 }
 
 export function isDmmAgeCheckHtml(html: string): boolean {

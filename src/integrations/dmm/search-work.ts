@@ -13,14 +13,22 @@ const FANZA_DOUJIN_SORT_PARAM: Partial<Record<SearchSortKey, string>> = {
 };
 
 export function buildFanzaDoujinSearchUrl(query: SearchQuery, rawPage: number): string {
-  const segments = [`word=${encodeURIComponent(query.keyword)}`];
+  // DMM側はセグメント順序を正規化しており（word→sort の順で送ると sort→word の順に
+  // 301 リダイレクトされる）、さらに page=1 は常に省略された正規URLへ301される
+  // （page=2 以降は301なしで直接200が返る）。canonical な順序・形式に合わせて
+  // 不要なリダイレクトを起こさないようにする。
+  const segments: string[] = [];
   const sortParam = query.sort ? FANZA_DOUJIN_SORT_PARAM[query.sort] : undefined;
 
   if (sortParam) {
     segments.push(`sort=${sortParam}`);
   }
 
-  segments.push(`page=${rawPage}`);
+  segments.push(`word=${encodeURIComponent(query.keyword)}`);
+
+  if (rawPage > 1) {
+    segments.push(`page=${rawPage}`);
+  }
 
   return `https://${DMM_HOST}/dc/doujin/-/list/narrow/=/${segments.join("/")}/`;
 }

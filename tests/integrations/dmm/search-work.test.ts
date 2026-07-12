@@ -16,15 +16,15 @@ function readFixture(fileName: string): string {
 const baseQuery: SearchQuery = { target: "fanza_doujin", keyword: "RPG" };
 
 describe("buildFanzaDoujinSearchUrl", () => {
-  it("builds the keyword-only URL", () => {
+  it("builds the keyword-only URL without a page segment for page 1", () => {
     expect(buildFanzaDoujinSearchUrl(baseQuery, 1)).toBe(
-      "https://www.dmm.co.jp/dc/doujin/-/list/narrow/=/word=RPG/page=1/",
+      "https://www.dmm.co.jp/dc/doujin/-/list/narrow/=/word=RPG/",
     );
   });
 
-  it("appends the sort segment when provided", () => {
+  it("puts sort before word (matching DMM's canonical segment order) and appends page for page 2+", () => {
     expect(buildFanzaDoujinSearchUrl({ ...baseQuery, sort: "popularity" }, 2)).toBe(
-      "https://www.dmm.co.jp/dc/doujin/-/list/narrow/=/word=RPG/sort=sales/page=2/",
+      "https://www.dmm.co.jp/dc/doujin/-/list/narrow/=/sort=sales/word=RPG/page=2/",
     );
   });
 
