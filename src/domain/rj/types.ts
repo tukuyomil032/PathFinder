@@ -29,6 +29,8 @@ export type WorkPreview = {
   title: string;
   url: string;
   makerName: string | null;
+  // サークル/ブランドID。/random のサークルfacet収集用（DLsite・FANZA同人のみ抽出、他storeはnull）。
+  makerId: string | null;
   ageCategory: string | null;
   isAdult: boolean;
   price: string | null;

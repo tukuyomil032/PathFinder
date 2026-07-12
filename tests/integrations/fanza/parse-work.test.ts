@@ -58,6 +58,7 @@ describe("parseDmmWork", () => {
       title: "田舎妹と無知の誘惑2",
       url: "https://www.dmm.co.jp/dc/doujin/-/detail/=/cid=d_743581/",
       makerName: "みずのウロ",
+      makerId: "206191",
       price: "792円",
       ageCategory: "成人向け",
       releaseDate: "2026/05/03",
@@ -81,6 +82,7 @@ describe("parseDmmWork", () => {
       thumbnailUrl: "https://pics.dmm.co.jp/digital/video/midv00018/midv00018pl.jpg",
       serviceName: "DMM TV",
       author: "恋渕ももな",
+      makerId: null,
     });
   });
 
