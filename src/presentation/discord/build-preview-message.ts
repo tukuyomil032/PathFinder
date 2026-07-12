@@ -88,7 +88,10 @@ export function buildFailureMessage(
   };
 }
 
-function shouldSuppress(work: WorkPreview, channelIsNsfw: boolean): boolean {
+/**
+ * NSFW抑制ポリシー。build-random-message.ts（/random）でも同じ判断基準を再利用する。
+ */
+export function shouldSuppress(work: WorkPreview, channelIsNsfw: boolean): boolean {
   if (isDmmFamilyStore(work.store)) {
     return !channelIsNsfw;
   }
