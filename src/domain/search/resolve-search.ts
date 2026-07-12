@@ -1,9 +1,17 @@
+import {
+  parseFanzaDoujinSearchItems,
+  parseFanzaDoujinSearchResult,
+} from "../../integrations/dmm/parse-search-results";
+import {
+  fetchFanzaDoujinMakerListPage,
+  fetchFanzaDoujinSearchPage,
+} from "../../integrations/dmm/search-work";
 import { fetchCircleProfilePage, fetchSearchAjaxPage } from "../../integrations/dlsite/search-work";
 import {
   parseSearchAjaxResult,
   parseSearchResultItems,
 } from "../../integrations/dlsite/parse-search-results";
-import type { RawSearchPage, SearchQuery, SearchTarget } from "./types";
+import type { RawSearchPage, SearchQuery, SearchResultItem, SearchTarget } from "./types";
 import { resolveStoreForTarget } from "./types";
 
 export type SearchFetcher = (query: SearchQuery, rawPage: number) => Promise<RawSearchPage>;
@@ -13,6 +21,10 @@ export function resolveSearchFetcher(target: SearchTarget): SearchFetcher {
 
   if (store === "dlsite") {
     return fetchDlsiteSearchPage;
+  }
+
+  if (store === "fanza_doujin") {
+    return fetchFanzaDoujinPage;
   }
 
   throw new TypeError(`No search fetcher implemented yet for target ${target}`);
@@ -26,19 +38,43 @@ async function fetchDlsiteSearchPage(query: SearchQuery, rawPage: number): Promi
     return page;
   }
 
-  return applyCircleFilter(page, query);
+  return resolveCircleFiltered(page, query, {
+    fetchMakerCatalog: (makerId) => fetchCircleProfilePage(query.target, makerId),
+    parseItems: parseSearchResultItems,
+  });
+}
+
+async function fetchFanzaDoujinPage(query: SearchQuery, rawPage: number): Promise<RawSearchPage> {
+  const html = await fetchFanzaDoujinSearchPage(query, rawPage);
+  const page = parseFanzaDoujinSearchResult(html);
+
+  if (!query.circle) {
+    return page;
+  }
+
+  return resolveCircleFiltered(page, query, {
+    fetchMakerCatalog: fetchFanzaDoujinMakerListPage,
+    parseItems: parseFanzaDoujinSearchItems,
+  });
 }
 
 /**
- * circle 指定時の2段階解決:
+ * circle 指定時の2段階解決（store非依存）:
  *   1. 通常のキーワード検索結果から makerName が circle と部分一致するアイテムを探す
- *   2. 一致した最初のアイテムの makerId を使い、サークルプロフィールページ
- *      （circle/profile/=/maker_id/{id}.html、そのサークルの全作品をSSRで返す）を取得
+ *   2. 一致した最初のアイテムの makerId を使い、そのサークル/ブランドの全作品一覧
+ *      （DLsite: circle/profile/=/maker_id/{id}.html、FANZA同人: list/=/article=maker/id=...）を取得
  *   3. サークル内の全作品を keyword で再フィルタして返す
  * 同名の別サークルが存在する場合に取り違えるリスクは残るが、単純な部分一致のみより
  * そのサークルの作品を漏れなく拾える（詳細は docs 参照）。
  */
-async function applyCircleFilter(page: RawSearchPage, query: SearchQuery): Promise<RawSearchPage> {
+async function resolveCircleFiltered(
+  page: RawSearchPage,
+  query: SearchQuery,
+  deps: {
+    fetchMakerCatalog: (makerId: string) => Promise<string>;
+    parseItems: (html: string) => SearchResultItem[];
+  },
+): Promise<RawSearchPage> {
   const circleNeedle = query.circle?.toLowerCase() ?? "";
   const matched = page.items.find((item) => item.makerName?.toLowerCase().includes(circleNeedle));
 
@@ -50,10 +86,10 @@ async function applyCircleFilter(page: RawSearchPage, query: SearchQuery): Promi
     return { items: [], hasNext: page.hasNext, totalCount: null };
   }
 
-  const circleHtml = await fetchCircleProfilePage(query.target, matched.makerId);
-  const circleItems = parseSearchResultItems(circleHtml);
+  const catalogHtml = await deps.fetchMakerCatalog(matched.makerId);
+  const catalogItems = deps.parseItems(catalogHtml);
   const keywordNeedle = query.keyword.toLowerCase();
-  const filtered = circleItems.filter((item) => item.title.toLowerCase().includes(keywordNeedle));
+  const filtered = catalogItems.filter((item) => item.title.toLowerCase().includes(keywordNeedle));
 
   return { items: filtered, hasNext: false, totalCount: filtered.length };
 }
