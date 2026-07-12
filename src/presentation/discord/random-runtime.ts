@@ -1,15 +1,25 @@
 import type {
+  ButtonInteraction,
   ChatInputCommandInteraction,
+  Client,
   InteractionEditReplyOptions,
   InteractionReplyOptions,
+  InteractionUpdateOptions,
+  MessageEditOptions,
 } from "discord.js";
+import { getEnv } from "../../config/env";
 import type { CirclePool } from "../../domain/random/circle-pool";
 import type { GenrePool } from "../../domain/random/genre-pool";
 import {
   NoRandomResultsError,
   pickRandomSearchResultItem,
 } from "../../domain/random/pick-random-work";
-import type { RandomResolvedWork } from "../../domain/random/random-session-cache";
+import {
+  createRandomSessionCache,
+  type RandomResolvedWork,
+  type RandomSession,
+  type RandomSessionCache,
+} from "../../domain/random/random-session-cache";
 import { fetchWorkPage, parseWork } from "../../domain/rj/resolve-work";
 import type { FetchedWorkPage, WorkPreview, WorkReference } from "../../domain/rj/types";
 import {
@@ -22,8 +32,13 @@ import {
   type SearchQuery,
   type SearchTarget,
 } from "../../domain/search/types";
-import { buildPreviewMessage } from "./build-preview-message";
+import {
+  buildDisabledRandomMessage,
+  buildRandomResultMessage,
+  type ComponentsV2Payload,
+} from "./build-random-message";
 import { buildSearchFailureMessage, type DiscordReplyPayload } from "./build-search-message";
+import { shouldAllowAdultDetails } from "./preview-runtime";
 import { getSharedCirclePool, getSharedGenrePool } from "./shared-random-pools";
 
 const MAX_RANDOM_ATTEMPTS = 3;
@@ -151,16 +166,58 @@ export type RandomRuntimeDeps = {
   circlePool: CirclePool;
   fetchWorkPage: (reference: WorkReference) => Promise<FetchedWorkPage>;
   parseWork: (page: FetchedWorkPage, reference: WorkReference) => WorkPreview;
-  buildPreviewMessage: (
-    work: WorkPreview,
-    channelIsNsfw: boolean,
-  ) => ReturnType<typeof buildPreviewMessage>;
+  sessionCache: RandomSessionCache;
+  idleTimeoutMs: number;
   random?: () => number;
   log?: Partial<Pick<Console, "error" | "info">>;
 };
 
 export function createRandomRuntime(deps: RandomRuntimeDeps) {
   const random = deps.random ?? Math.random;
+  const idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function clearIdleTimer(token: string): void {
+    const timer = idleTimers.get(token);
+
+    if (timer) {
+      clearTimeout(timer);
+      idleTimers.delete(token);
+    }
+  }
+
+  function scheduleIdleTimer(token: string, client: Client): void {
+    clearIdleTimer(token);
+
+    const timer = setTimeout(() => {
+      void disableExpiredSession(token, client);
+    }, deps.idleTimeoutMs);
+
+    idleTimers.set(token, timer);
+  }
+
+  async function disableExpiredSession(token: string, client: Client): Promise<void> {
+    idleTimers.delete(token);
+    const session = deps.sessionCache.get(token);
+    deps.sessionCache.delete(token);
+
+    if (!session?.messageId) {
+      return;
+    }
+
+    try {
+      const channel = await client.channels.fetch(session.channelId);
+
+      if (channel?.isTextBased()) {
+        const message = await channel.messages.fetch(session.messageId);
+        const allowAdultDetails = shouldAllowAdultDetails(channel as never);
+        await message.edit(
+          toComponentsV2EditOptions(buildDisabledRandomMessage(session, allowAdultDetails)),
+        );
+      }
+    } catch (error) {
+      deps.log?.error?.("Failed to disable expired random buttons", error);
+    }
+  }
 
   return {
     async resolve(
@@ -178,59 +235,97 @@ export function createRandomRuntime(deps: RandomRuntimeDeps) {
       try {
         await interaction.deferReply();
 
-        let lastError: unknown;
+        const { results, sawRealError } = await resolveBatch(target, input.keyword, {
+          resolveFetcher: deps.resolveFetcher,
+          genrePool: deps.genrePool,
+          circlePool: deps.circlePool,
+          fetchWorkPage: deps.fetchWorkPage,
+          parseWork: deps.parseWork,
+          random,
+        });
 
-        for (let attempt = 0; attempt < MAX_RANDOM_ATTEMPTS; attempt++) {
-          try {
-            const query = await buildCandidateQuery(target, input.keyword, {
-              genrePool: deps.genrePool,
-              circlePool: deps.circlePool,
-              random,
-            });
-            const item = await pickRandomSearchResultItem(query, {
-              fetcher: deps.resolveFetcher(target),
-              random,
-            });
-
-            deps.circlePool.record(item.store, item.makerId, item.makerName);
-
-            const reference: WorkReference = {
-              store: item.store,
-              id: item.id,
-              kind: "url",
-              sourceUrl: item.url,
-              matchedText: item.url,
-            };
-
-            const page = await deps.fetchWorkPage(reference);
-            const work = deps.parseWork(page, reference);
-            deps.circlePool.record(work.store, work.makerId, work.makerName);
-
-            await interaction.editReply(
-              toEditReplyOptions(deps.buildPreviewMessage(work, allowAdultDetails)),
-            );
-            return;
-          } catch (error) {
-            lastError = error;
-          }
+        if (results.length === 0) {
+          await interaction.editReply(
+            toEditReplyOptions(
+              sawRealError
+                ? buildSearchFailureMessage("generic")
+                : buildSearchFailureMessage("empty"),
+            ),
+          );
+          return;
         }
 
-        deps.log?.error?.("Failed to pick a random work after retries", lastError);
-        await interaction.editReply(
-          toEditReplyOptions(
-            lastError instanceof NoRandomResultsError
-              ? buildSearchFailureMessage("empty")
-              : buildSearchFailureMessage("generic"),
-          ),
+        const token = crypto.randomUUID();
+        let session: RandomSession = {
+          token,
+          results,
+          currentIndex: 0,
+          channelId: interaction.channelId,
+          messageId: null,
+        };
+
+        deps.sessionCache.set(token, session);
+
+        const reply = await interaction.editReply(
+          toComponentsV2EditReplyOptions(buildRandomResultMessage(session, allowAdultDetails)),
         );
+
+        session = { ...session, messageId: reply.id };
+        deps.sessionCache.set(token, session);
+        scheduleIdleTimer(token, interaction.client);
       } catch (error) {
-        deps.log?.error?.("Failed to resolve random work", error);
+        deps.log?.error?.("Failed to resolve random works", error);
         const failurePayload = buildSearchFailureMessage("generic");
 
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply(toEditReplyOptions(failurePayload));
         } else {
           await interaction.reply(toReplyOptions(failurePayload));
+        }
+      }
+    },
+
+    async handleButton(interaction: ButtonInteraction): Promise<void> {
+      const parsed = parseCustomId(interaction.customId);
+
+      if (!parsed) {
+        return;
+      }
+
+      const session = deps.sessionCache.get(parsed.token);
+
+      if (!session) {
+        clearIdleTimer(parsed.token);
+        await interaction.reply({
+          content: buildSearchFailureMessage("session_expired").content,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      try {
+        // 5件は全て事前に取得済みのため、prev/nextはインデックスの入れ替えのみで
+        // 上流への再フェッチは発生しない（/searchのnextと異なりdeferUpdateも不要）。
+        const currentIndex =
+          parsed.action === "next"
+            ? Math.min(session.currentIndex + 1, session.results.length - 1)
+            : Math.max(session.currentIndex - 1, 0);
+        const updated: RandomSession = { ...session, currentIndex };
+        deps.sessionCache.set(updated.token, updated);
+
+        const allowAdultDetails = shouldAllowAdultDetails(interaction.channel as never);
+        await interaction.update(
+          toComponentsV2UpdateOptions(buildRandomResultMessage(updated, allowAdultDetails)),
+        );
+        scheduleIdleTimer(updated.token, interaction.client);
+      } catch (error) {
+        deps.log?.error?.("Failed to update random page", error);
+        const failurePayload = buildSearchFailureMessage("generic");
+
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(toEditReplyOptions(failurePayload));
+        } else {
+          await interaction.reply({ content: failurePayload.content, ephemeral: true });
         }
       }
     },
@@ -296,6 +391,42 @@ function toEditReplyOptions(payload: DiscordReplyPayload): InteractionEditReplyO
   };
 }
 
+// Components V2ペイロード用の変換ヘルパー。IsComponentsV2は一度付与すると解除できないため、
+// 通常表示・ページング更新・アイドルタイムアウトによるdisabled化のいずれでも必ずflagsを渡す。
+function toComponentsV2EditReplyOptions(payload: ComponentsV2Payload): InteractionEditReplyOptions {
+  return {
+    components: payload.components,
+    flags: payload.flags,
+    allowedMentions: payload.allowedMentions,
+  };
+}
+
+function toComponentsV2UpdateOptions(payload: ComponentsV2Payload): InteractionUpdateOptions {
+  return {
+    components: payload.components,
+    flags: payload.flags,
+    allowedMentions: payload.allowedMentions,
+  };
+}
+
+function toComponentsV2EditOptions(payload: ComponentsV2Payload): MessageEditOptions {
+  return {
+    components: payload.components,
+    flags: payload.flags,
+    allowedMentions: payload.allowedMentions,
+  };
+}
+
+function parseCustomId(customId: string): { token: string; action: "prev" | "next" } | null {
+  const match = customId.match(/^random:(.+):(prev|next)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return { token: match[1], action: match[2] as "prev" | "next" };
+}
+
 let runtimeRandomRuntime: ReturnType<typeof createRandomRuntime> | null = null;
 
 export function getRuntimeRandomRuntime() {
@@ -305,7 +436,8 @@ export function getRuntimeRandomRuntime() {
     circlePool: getSharedCirclePool(),
     fetchWorkPage,
     parseWork,
-    buildPreviewMessage,
+    sessionCache: createRandomSessionCache(getEnv().SEARCH_SESSION_TTL_MS),
+    idleTimeoutMs: getEnv().SEARCH_SESSION_TTL_MS,
     log: console,
   });
 

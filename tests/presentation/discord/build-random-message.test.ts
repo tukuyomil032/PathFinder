@@ -95,8 +95,8 @@ describe("buildRandomResultMessage", () => {
     const payload = buildRandomResultMessage(session([resolved()]), true);
 
     expect(payload.flags).toBe(MessageFlags.IsComponentsV2);
-    expect(payload.content).toBeUndefined();
-    expect((payload as { embeds?: unknown }).embeds).toBeUndefined();
+    expect("content" in payload).toBe(false);
+    expect("embeds" in payload).toBe(false);
   });
 
   it("wraps everything in a single top-level Container", () => {

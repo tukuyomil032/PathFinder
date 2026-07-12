@@ -1,10 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { MessageFlags } from "discord.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCirclePool } from "../../../src/domain/random/circle-pool";
 import { createGenrePool } from "../../../src/domain/random/genre-pool";
+import { createRandomSessionCache } from "../../../src/domain/random/random-session-cache";
 import type { FetchedWorkPage, WorkPreview } from "../../../src/domain/rj/types";
 import type { RawSearchPage, SearchResultItem } from "../../../src/domain/search/types";
 import {
   createRandomRuntime,
+  RANDOM_BATCH_TARGET_COUNT,
   resolveBatch,
   type RandomRuntimeDeps,
 } from "../../../src/presentation/discord/random-runtime";
@@ -67,11 +70,28 @@ const sampleWork: WorkPreview = {
 
 function createMockInteraction(overrides: Record<string, unknown> = {}) {
   return {
+    channelId: "channel-1",
+    channel: { nsfw: true },
+    client: { channels: { fetch: vi.fn() } },
     deferred: false,
     replied: false,
     reply: vi.fn().mockResolvedValue(undefined),
     deferReply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
+    ...overrides,
+  };
+}
+
+function createMockButtonInteraction(customId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    customId,
+    channel: { nsfw: true },
+    client: { channels: { fetch: vi.fn() } },
+    deferred: false,
+    replied: false,
+    update: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
+    reply: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -83,10 +103,28 @@ function createDeps(overrides: Partial<RandomRuntimeDeps> = {}): RandomRuntimeDe
     circlePool: createCirclePool(),
     fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
     parseWork: vi.fn().mockReturnValue(sampleWork),
-    buildPreviewMessage: vi.fn().mockReturnValue({ content: "preview" }),
+    sessionCache: createRandomSessionCache(60_000),
+    idleTimeoutMs: 60_000,
     random: () => 0,
     ...overrides,
   };
+}
+
+function extractToken(payload: {
+  components: ReadonlyArray<{ toJSON(): { components: Array<{ type: number }> } }>;
+}): string {
+  const container = payload.components[0].toJSON();
+  const actionRow = container.components.find((c) => c.type === 1) as unknown as {
+    components: Array<{ custom_id: string }>;
+  };
+  const customId = actionRow.components[0].custom_id;
+  const match = customId.match(/^random:(.+):(prev|next)$/);
+
+  if (!match) {
+    throw new Error(`Unable to extract token from customId: ${customId}`);
+  }
+
+  return match[1];
 }
 
 describe("resolveBatch", () => {
@@ -149,7 +187,15 @@ describe("resolveBatch", () => {
 });
 
 describe("createRandomRuntime", () => {
-  it("defers the reply before doing any upstream work", async () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("defers the reply before doing any upstream work and shows a Components V2 result", async () => {
     const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
     const deps = createDeps({ resolveFetcher: () => fetcher });
     const runtime = createRandomRuntime(deps);
@@ -159,7 +205,7 @@ describe("createRandomRuntime", () => {
 
     expect(interaction.deferReply).toHaveBeenCalledTimes(1);
     expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: "preview" }),
+      expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
     );
   });
 
@@ -296,25 +342,37 @@ describe("createRandomRuntime", () => {
     expect(circlePool.pickRandom("dlsite", () => 0)?.makerId).toBeDefined();
   });
 
-  it("retries with a fresh candidate query when the work detail fetch fails, then succeeds", async () => {
+  it("resolves up to RANDOM_BATCH_TARGET_COUNT works and creates a paginated session", async () => {
+    const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
+    const deps = createDeps({ resolveFetcher: () => fetcher });
+    const runtime = createRandomRuntime(deps);
+    const interaction = createMockInteraction();
+
+    await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
+
+    const token = extractToken(interaction.editReply.mock.calls[0][0]);
+    expect(deps.sessionCache.get(token)?.results).toHaveLength(RANDOM_BATCH_TARGET_COUNT);
+    expect(deps.sessionCache.get(token)?.messageId).toBe("message-1");
+  });
+
+  it("recovers from a failing attempt within a worker and still reaches a Components V2 result", async () => {
     const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
     const fetchWorkPage = vi
       .fn()
       .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce(samplePage);
+      .mockResolvedValue(samplePage);
     const deps = createDeps({ resolveFetcher: () => fetcher, fetchWorkPage });
     const runtime = createRandomRuntime(deps);
     const interaction = createMockInteraction();
 
     await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
 
-    expect(fetchWorkPage).toHaveBeenCalledTimes(2);
-    expect(interaction.editReply).toHaveBeenLastCalledWith(
-      expect.objectContaining({ content: "preview" }),
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
     );
   });
 
-  it("gives up after MAX_RANDOM_ATTEMPTS and shows the generic failure message", async () => {
+  it("shows the generic failure message when every attempt fails with a real error", async () => {
     const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
     const fetchWorkPage = vi.fn().mockRejectedValue(new Error("boom"));
     const deps = createDeps({ resolveFetcher: () => fetcher, fetchWorkPage });
@@ -323,7 +381,8 @@ describe("createRandomRuntime", () => {
 
     await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
 
-    expect(fetchWorkPage).toHaveBeenCalledTimes(3);
+    // RANDOM_BATCH_TARGET_COUNT件 x 1件あたりの試行回数(3) = 合計試行回数の上限
+    expect(fetchWorkPage).toHaveBeenCalledTimes(RANDOM_BATCH_TARGET_COUNT * 3);
     const payload = interaction.editReply.mock.calls.at(-1)?.[0];
     expect(payload.content).toContain("エラーが発生しました");
   });
@@ -351,6 +410,97 @@ describe("createRandomRuntime", () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("エラーが発生しました") }),
+    );
+  });
+
+  describe("handleButton", () => {
+    async function resolveSession(deps: RandomRuntimeDeps) {
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(page([item("RJ1", { title: "作品1" })], 1))
+        .mockResolvedValue(page([item("RJ2", { title: "作品2" })], 1));
+      const runtime = createRandomRuntime({ ...deps, resolveFetcher: () => fetcher });
+      const interaction = createMockInteraction();
+
+      await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
+
+      const token = extractToken(interaction.editReply.mock.calls[0][0]);
+      return { runtime, token };
+    }
+
+    it("moves to the next item without re-fetching upstream data", async () => {
+      const deps = createDeps();
+      const { runtime, token } = await resolveSession(deps);
+      const before = deps.sessionCache.get(token);
+      const fetchCallsBefore = (deps.fetchWorkPage as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      const nextInteraction = createMockButtonInteraction(`random:${token}:next`);
+      await runtime.handleButton(nextInteraction as never);
+
+      expect(deps.sessionCache.get(token)?.currentIndex).toBe((before?.currentIndex ?? 0) + 1);
+      expect(nextInteraction.update).toHaveBeenCalledWith(
+        expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
+      );
+      expect((deps.fetchWorkPage as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+        fetchCallsBefore,
+      );
+    });
+
+    it("clamps at the last item and does not go out of bounds", async () => {
+      const deps = createDeps();
+      const { runtime, token } = await resolveSession(deps);
+      const total = deps.sessionCache.get(token)?.results.length ?? 0;
+
+      for (let i = 0; i < total + 2; i++) {
+        const nextInteraction = createMockButtonInteraction(`random:${token}:next`);
+        await runtime.handleButton(nextInteraction as never);
+      }
+
+      expect(deps.sessionCache.get(token)?.currentIndex).toBe(total - 1);
+    });
+
+    it("clamps at the first item when going previous from index 0", async () => {
+      const deps = createDeps();
+      const { runtime, token } = await resolveSession(deps);
+
+      const prevInteraction = createMockButtonInteraction(`random:${token}:prev`);
+      await runtime.handleButton(prevInteraction as never);
+
+      expect(deps.sessionCache.get(token)?.currentIndex).toBe(0);
+    });
+
+    it("replies with an ephemeral session-expired message when the token is unknown", async () => {
+      const deps = createDeps();
+      const runtime = createRandomRuntime(deps);
+      const buttonInteraction = createMockButtonInteraction("random:missing-token:next");
+
+      await runtime.handleButton(buttonInteraction as never);
+
+      expect(buttonInteraction.reply).toHaveBeenCalledWith(
+        expect.objectContaining({ ephemeral: true, content: expect.stringContaining("失効") }),
+      );
+    });
+  });
+
+  it("disables the buttons on the message once the idle timeout elapses", async () => {
+    const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
+    const deps = createDeps({ resolveFetcher: () => fetcher, idleTimeoutMs: 5_000 });
+    const runtime = createRandomRuntime(deps);
+    const editMock = vi.fn().mockResolvedValue(undefined);
+    const channel = {
+      isTextBased: () => true,
+      nsfw: true,
+      messages: { fetch: vi.fn().mockResolvedValue({ edit: editMock }) },
+    };
+    const interaction = createMockInteraction({
+      client: { channels: { fetch: vi.fn().mockResolvedValue(channel) } },
+    });
+
+    await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(editMock).toHaveBeenCalledWith(
+      expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
     );
   });
 });

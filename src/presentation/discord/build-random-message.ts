@@ -6,12 +6,20 @@ import {
   MessageFlags,
   type MessageActionRowComponentBuilder,
   type MessageCreateOptions,
+  type MessageMentionOptions,
 } from "discord.js";
 import type { RandomResolvedWork, RandomSession } from "../../domain/random/random-session-cache";
 import { isDmmFamilyStore, type WorkPreview } from "../../domain/rj/types";
 import { shouldSuppress } from "./build-preview-message";
 
-export type ComponentsV2Payload = MessageCreateOptions;
+// content/embeds等を一切持たないComponents V2専用ペイロード。flagsを
+// MessageFlags.IsComponentsV2に固定した狭い型にすることで、呼び出し側
+// （InteractionEditReplyOptions等、より狭いflags型を要求する型）へそのまま渡せるようにする。
+export type ComponentsV2Payload = {
+  components: NonNullable<MessageCreateOptions["components"]>;
+  flags: MessageFlags.IsComponentsV2;
+  allowedMentions?: MessageMentionOptions;
+};
 
 /**
  * /randomの複数件結果メッセージ（Components V2）。まとめブロック（全件、サムネイルなし）
