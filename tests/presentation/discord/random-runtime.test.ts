@@ -1,13 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createCirclePool } from "../../../src/domain/random/circle-pool";
 import { createGenrePool } from "../../../src/domain/random/genre-pool";
-import { NoRandomResultsError } from "../../../src/domain/random/pick-random-work";
 import type { FetchedWorkPage, WorkPreview } from "../../../src/domain/rj/types";
-import type {
-  RawSearchPage,
-  SearchQuery,
-  SearchResultItem,
-} from "../../../src/domain/search/types";
+import type { RawSearchPage, SearchResultItem } from "../../../src/domain/search/types";
 import {
   createRandomRuntime,
   type RandomRuntimeDeps,
