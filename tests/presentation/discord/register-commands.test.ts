@@ -3,11 +3,12 @@ import { buildApplicationCommands } from "../../../src/presentation/discord/comm
 import { registerApplicationCommands } from "../../../src/presentation/discord/register-commands";
 
 describe("buildApplicationCommands", () => {
-  it("builds dlsite, fanza, and help commands", () => {
+  it("builds dlsite, fanza, search, random, and help commands", () => {
     expect(buildApplicationCommands().map((command) => command.name)).toEqual([
       "dlsite",
       "fanza",
       "search",
+      "random",
       "help",
     ]);
   });
