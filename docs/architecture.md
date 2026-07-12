@@ -186,7 +186,7 @@ declare function buildPreviewMessage(
 
 - **ブラウズ**: DLsite/FANZA同人の検索URLビルダーはkeyword省略時に全件ブラウズURL（keywordセグメント自体を省略）を組み立てられる。1ページ目の総件数からランダムなページ番号を算出し、そのページ内で1件選ぶ（`pick-random-work.ts`）。
 - **ジャンルfacet**: DLsite（`/{surface}/genre/list`）・FANZA同人（`/dc/doujin/-/genre/`）が公開するジャンル/タグ一覧ページを取得し、`genre-pool.ts`が24時間TTLでキャッシュする。取得失敗時は空リストにフォールバックし、ジャンルfacetは自動的に候補から除外される。
-- **サークルfacet**: 専用の一覧ページが存在しないため、`/random`・`/search`・`/dlsite`・`/fanza`の実行結果から実在確認済みのサークル/ブランド（makerId + makerName）を`circle-pool.ts`が収集する。プールに入る値は必ず過去に実在が確認できた値のため、無効な値を抽選するリスクが構造的に発生しない。
+- **サークルfacet**: 専用の一覧ページが存在しないため、`/random`・`/search`・`/dlsite`・`/fanza`の実行結果から実在確認済みのサークル/ブランド（makerId + makerName）を`circle-pool.ts`が収集する。記録時点で実在していたmakerIdでも、その後の削除・非公開化・検索結果の変動で0件になり得るため、これは無効な候補を引く確率を下げるに留まる（完全に排除する保証ではない）。`resolveBatch`がリトライ・埋め合わせを行う設計になっているのはこのためである。
 - store・keywordを明示指定した場合は、facetによる上書きをせずそのまま検索する（`/search`と同じ予測可能な挙動）。
 - 抽選結果は`SearchResultItem`が既に保持する実URLを使って`WorkReference(kind:"url")`を組み立て、既存のプレビューパイプライン（`fetchWorkPage` / `parseWork`）へそのまま渡す。
 

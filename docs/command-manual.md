@@ -75,7 +75,7 @@
 - 非NSFWチャンネルでは DLSite 成人向け作品の詳細を抑制する。
 - 非NSFWチャンネルでは DMM family 全体を最小情報表示に倒す。
 - NSFWチャンネルでは通常の詳細 Embed を返す。
-- `/random`はstore単位の粗いNSFWゲート（`dlsite_maniax`以外は成人向け前提）を通過した後、まとめブロック・詳細ブロックの両方で作品単位に同じマスキング基準（`shouldSuppress`）を適用する（非NSFWチャンネルの成人向け作品はタイトル・URLのみ表示）。
+- `/random`はstore単位の事前ゲートを行わない。抽選対象がadult-only想定のstore（`dlsite_maniax`以外）であっても解決自体は進め、まとめブロック・詳細ブロックの両方で作品単位に同じマスキング基準（`shouldSuppress`）を適用する（非NSFWチャンネルの成人向け作品はタイトル・URLのみ表示）。
 
 ## 7. Auto Detection vs Slash Commands
 
