@@ -9,6 +9,7 @@ import {
   NoRandomResultsError,
   pickRandomSearchResultItem,
 } from "../../domain/random/pick-random-work";
+import type { RandomResolvedWork } from "../../domain/random/random-session-cache";
 import { fetchWorkPage, parseWork } from "../../domain/rj/resolve-work";
 import type { FetchedWorkPage, WorkPreview, WorkReference } from "../../domain/rj/types";
 import {
@@ -19,7 +20,6 @@ import {
   isAdultOnlyTarget,
   resolveStoreForTarget,
   type SearchQuery,
-  type SearchResultItem,
   type SearchTarget,
 } from "../../domain/search/types";
 import { buildPreviewMessage } from "./build-preview-message";
@@ -32,7 +32,7 @@ const MAX_RANDOM_ATTEMPTS = 3;
 // MAX_RANDOM_ATTEMPTSを踏襲し、TARGET_COUNT件分の合計試行回数に上限を設ける。
 export const RANDOM_BATCH_TARGET_COUNT = 5;
 
-export type RandomResolvedWork = { item: SearchResultItem; work: WorkPreview };
+export type { RandomResolvedWork };
 
 type AttemptOutcome = { ok: true; result: RandomResolvedWork } | { ok: false; noResults: boolean };
 
