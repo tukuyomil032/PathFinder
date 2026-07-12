@@ -15,6 +15,10 @@ export type SearchSortKey = "popularity" | "new" | "price_asc" | "price_desc" | 
 export type SearchQuery = {
   target: SearchTarget;
   keyword: string;
+  // /random のジャンルfacet用。DLsiteはgenre[0]、FANZA同人はarticle=keyword/idに対応する。
+  genreId?: string;
+  // /random のサークルfacet用。既知のIDで直接絞り込み、circle（名前）の2段階解決をスキップする。
+  makerId?: string;
   priceMin?: number;
   priceMax?: number;
   circle?: string;

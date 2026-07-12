@@ -16,6 +16,15 @@ import { resolveStoreForTarget } from "./types";
 
 export type SearchFetcher = (query: SearchQuery, rawPage: number) => Promise<RawSearchPage>;
 
+// /search・/random で実際にfetcherが実装済みのtarget一覧。/random のstore自動抽選は
+// ここに含まれるtargetからのみ選ぶ（未実装targetを自動抽選すると必ず失敗するため）。
+export const IMPLEMENTED_SEARCH_TARGETS: SearchTarget[] = [
+  "dlsite_maniax",
+  "dlsite_books",
+  "dlsite_pro",
+  "fanza_doujin",
+];
+
 export function resolveSearchFetcher(target: SearchTarget): SearchFetcher {
   const store = resolveStoreForTarget(target);
 
@@ -31,6 +40,15 @@ export function resolveSearchFetcher(target: SearchTarget): SearchFetcher {
 }
 
 async function fetchDlsiteSearchPage(query: SearchQuery, rawPage: number): Promise<RawSearchPage> {
+  const deps = {
+    fetchMakerCatalog: (makerId: string) => fetchCircleProfilePage(query.target, makerId),
+    parseItems: parseSearchResultItems,
+  };
+
+  if (query.makerId) {
+    return fetchMakerCatalogPage(query.makerId, deps);
+  }
+
   const raw = await fetchSearchAjaxPage(query, rawPage);
   const page = parseSearchAjaxResult(raw);
 
@@ -38,13 +56,19 @@ async function fetchDlsiteSearchPage(query: SearchQuery, rawPage: number): Promi
     return page;
   }
 
-  return resolveCircleFiltered(page, query, {
-    fetchMakerCatalog: (makerId) => fetchCircleProfilePage(query.target, makerId),
-    parseItems: parseSearchResultItems,
-  });
+  return resolveCircleFiltered(page, query, deps);
 }
 
 async function fetchFanzaDoujinPage(query: SearchQuery, rawPage: number): Promise<RawSearchPage> {
+  const deps = {
+    fetchMakerCatalog: fetchFanzaDoujinMakerListPage,
+    parseItems: parseFanzaDoujinSearchItems,
+  };
+
+  if (query.makerId) {
+    return fetchMakerCatalogPage(query.makerId, deps);
+  }
+
   const html = await fetchFanzaDoujinSearchPage(query, rawPage);
   const page = parseFanzaDoujinSearchResult(html);
 
@@ -52,10 +76,25 @@ async function fetchFanzaDoujinPage(query: SearchQuery, rawPage: number): Promis
     return page;
   }
 
-  return resolveCircleFiltered(page, query, {
-    fetchMakerCatalog: fetchFanzaDoujinMakerListPage,
-    parseItems: parseFanzaDoujinSearchItems,
-  });
+  return resolveCircleFiltered(page, query, deps);
+}
+
+/**
+ * makerId が既知の場合（/random のサークルfacet等）に、名前解決を経由せず
+ * そのサークル/ブランドの全作品一覧を直接取得する。件数は通常数十件程度で
+ * ページングの必要がないため、常に hasNext: false の1ページとして返す。
+ */
+async function fetchMakerCatalogPage(
+  makerId: string,
+  deps: {
+    fetchMakerCatalog: (makerId: string) => Promise<string>;
+    parseItems: (html: string) => SearchResultItem[];
+  },
+): Promise<RawSearchPage> {
+  const catalogHtml = await deps.fetchMakerCatalog(makerId);
+  const items = deps.parseItems(catalogHtml);
+
+  return { items, hasNext: false, totalCount: items.length };
 }
 
 /**
@@ -86,10 +125,9 @@ async function resolveCircleFiltered(
     return { items: [], hasNext: page.hasNext, totalCount: null };
   }
 
-  const catalogHtml = await deps.fetchMakerCatalog(matched.makerId);
-  const catalogItems = deps.parseItems(catalogHtml);
+  const catalog = await fetchMakerCatalogPage(matched.makerId, deps);
   const keywordNeedle = query.keyword.toLowerCase();
-  const filtered = catalogItems.filter((item) => item.title.toLowerCase().includes(keywordNeedle));
+  const filtered = catalog.items.filter((item) => item.title.toLowerCase().includes(keywordNeedle));
 
   return { items: filtered, hasNext: false, totalCount: filtered.length };
 }
