@@ -8,14 +8,21 @@ function createMockInteraction(params: {
   input?: string;
   helpTopic?: "dlsite" | "fanza" | "help" | null;
   nsfw?: boolean;
+  searchOptions?: Record<string, string | number | null>;
 }) {
   return {
     commandName: params.commandName,
     channel: { nsfw: params.nsfw ?? false },
     isChatInputCommand: () => true,
+    isButton: () => false,
     options: {
       getSubcommand: () => params.subcommand ?? "maniax",
       getString: (name: string) => {
+        if (params.searchOptions && name in params.searchOptions) {
+          const value = params.searchOptions[name];
+          return typeof value === "string" ? value : null;
+        }
+
         if (name === "input") {
           return params.input ?? null;
         }
@@ -26,8 +33,20 @@ function createMockInteraction(params: {
 
         return null;
       },
+      getInteger: (name: string) => {
+        const value = params.searchOptions?.[name];
+        return typeof value === "number" ? value : null;
+      },
     },
     reply: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function createMockButtonInteraction(customId: string) {
+  return {
+    isChatInputCommand: () => false,
+    isButton: () => true,
+    customId,
   };
 }
 
@@ -44,6 +63,7 @@ describe("createInteractionHandler", () => {
     });
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -71,6 +91,7 @@ describe("createInteractionHandler", () => {
     });
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -98,6 +119,7 @@ describe("createInteractionHandler", () => {
     });
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -120,6 +142,7 @@ describe("createInteractionHandler", () => {
     });
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -153,10 +176,62 @@ describe("createInteractionHandler", () => {
     });
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
     });
 
     await handler(interaction as never);
 
     expect(interaction.reply).toHaveBeenCalledWith(failurePayload);
+  });
+
+  it("routes /search to the search runtime with the resolved query", async () => {
+    const searchRuntime = { resolve: vi.fn().mockResolvedValue(undefined), handleButton: vi.fn() };
+    const interaction = createMockInteraction({
+      commandName: "search",
+      nsfw: true,
+      searchOptions: {
+        store: "dlsite_maniax",
+        keyword: "RPG",
+        sort: "popularity",
+        price_min: 500,
+        price_max: 2000,
+        circle: "サンプル",
+      },
+    });
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: searchRuntime as never,
+    });
+
+    await handler(interaction as never);
+
+    expect(searchRuntime.resolve).toHaveBeenCalledWith(
+      {
+        target: "dlsite_maniax",
+        keyword: "RPG",
+        sort: "popularity",
+        priceMin: 500,
+        priceMax: 2000,
+        circle: "サンプル",
+      },
+      interaction,
+      true,
+    );
+  });
+
+  it("routes search: button interactions to the search runtime and ignores others", async () => {
+    const searchRuntime = { resolve: vi.fn(), handleButton: vi.fn().mockResolvedValue(undefined) };
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: searchRuntime as never,
+    });
+
+    const searchButton = createMockButtonInteraction("search:token-1:next");
+    await handler(searchButton as never);
+    expect(searchRuntime.handleButton).toHaveBeenCalledWith(searchButton);
+
+    const otherButton = createMockButtonInteraction("something-else:token-1");
+    await handler(otherButton as never);
+    expect(searchRuntime.handleButton).toHaveBeenCalledTimes(1);
   });
 });

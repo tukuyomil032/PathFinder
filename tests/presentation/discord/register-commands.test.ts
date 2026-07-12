@@ -7,6 +7,7 @@ describe("buildApplicationCommands", () => {
     expect(buildApplicationCommands().map((command) => command.name)).toEqual([
       "dlsite",
       "fanza",
+      "search",
       "help",
     ]);
   });

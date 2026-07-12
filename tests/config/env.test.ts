@@ -15,6 +15,19 @@ describe("parseEnv", () => {
     expect(result.CACHE_TTL_MS).toBe(60000);
     expect(result.DISCORD_GUILD_ID).toBe("guild-id");
     expect(result.NSFW_STRICT_MODE).toBe(true);
+    expect(result.SEARCH_SESSION_TTL_MS).toBe(600_000);
+  });
+
+  it("accepts an explicit SEARCH_SESSION_TTL_MS override", () => {
+    const result = parseEnv({
+      DISCORD_BOT_TOKEN: "token",
+      CACHE_TTL_MS: "60000",
+      SEARCH_SESSION_TTL_MS: "120000",
+      DLSITE_USER_AGENT: "test-agent",
+      NSFW_STRICT_MODE: "true",
+    });
+
+    expect(result.SEARCH_SESSION_TTL_MS).toBe(120_000);
   });
 
   it("fails fast when required variables are missing", () => {

@@ -8,9 +8,18 @@ import {
 } from "../../integrations/dlsite/fetch-work-page";
 import { extractDmmReferenceFromUrl, normalizeDmmId } from "../../integrations/dmm/fetch-work-page";
 import type { DLSiteSurface, WorkReference, WorkStore } from "../../domain/rj/types";
+import type { SearchQuery, SearchSortKey, SearchTarget } from "../../domain/search/types";
 
 export const PREVIEW_INPUT_OPTION_NAME = "input";
 export const HELP_COMMAND_OPTION_NAME = "command";
+export const SEARCH_OPTION_NAMES = {
+  store: "store",
+  keyword: "keyword",
+  sort: "sort",
+  priceMin: "price_min",
+  priceMax: "price_max",
+  circle: "circle",
+} as const;
 
 type PreviewCommandName = "dlsite" | "fanza";
 type PreviewSubcommand = "maniax" | "books" | "pro" | "doujin" | "av" | "game" | "book";
@@ -114,6 +123,64 @@ const FANZA_COMMAND = new SlashCommandBuilder()
       ),
   );
 
+const SEARCH_TARGET_CHOICES: Array<{ name: string; value: SearchTarget }> = [
+  { name: "DLsite 同人 (maniax)", value: "dlsite_maniax" },
+  { name: "DLsite Books", value: "dlsite_books" },
+  { name: "DLsite 美少女ゲーム (pro)", value: "dlsite_pro" },
+  { name: "FANZA 同人", value: "fanza_doujin" },
+  { name: "FANZA PCゲーム", value: "fanza_pcgame" },
+  { name: "FANZA BOOKS", value: "fanza_books" },
+];
+
+const SEARCH_SORT_CHOICES: Array<{ name: string; value: SearchSortKey }> = [
+  { name: "人気順", value: "popularity" },
+  { name: "新着順", value: "new" },
+  { name: "価格が安い順", value: "price_asc" },
+  { name: "価格が高い順", value: "price_desc" },
+  { name: "評価が高い順", value: "rating" },
+];
+
+const SEARCH_COMMAND = new SlashCommandBuilder()
+  .setName("search")
+  .setDescription("DLSite / FANZA を横断してキーワード検索します")
+  .addStringOption((option) =>
+    option
+      .setName(SEARCH_OPTION_NAMES.store)
+      .setDescription("検索対象ストア/カテゴリ")
+      .setRequired(true)
+      .addChoices(...SEARCH_TARGET_CHOICES),
+  )
+  .addStringOption((option) =>
+    option.setName(SEARCH_OPTION_NAMES.keyword).setDescription("検索キーワード").setRequired(true),
+  )
+  .addStringOption((option) =>
+    option
+      .setName(SEARCH_OPTION_NAMES.sort)
+      .setDescription("並び順")
+      .setRequired(false)
+      .addChoices(...SEARCH_SORT_CHOICES),
+  )
+  .addIntegerOption((option) =>
+    option
+      .setName(SEARCH_OPTION_NAMES.priceMin)
+      .setDescription("価格下限(円)")
+      .setMinValue(0)
+      .setRequired(false),
+  )
+  .addIntegerOption((option) =>
+    option
+      .setName(SEARCH_OPTION_NAMES.priceMax)
+      .setDescription("価格上限(円)")
+      .setMinValue(0)
+      .setRequired(false),
+  )
+  .addStringOption((option) =>
+    option
+      .setName(SEARCH_OPTION_NAMES.circle)
+      .setDescription("サークル名/ブランド名で絞り込み")
+      .setRequired(false),
+  );
+
 const HELP_COMMAND = new SlashCommandBuilder()
   .setName("help")
   .setDescription("コマンド一覧と入力例を表示します")
@@ -130,7 +197,27 @@ const HELP_COMMAND = new SlashCommandBuilder()
   );
 
 export function buildApplicationCommands(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
-  return [DLsite_COMMAND, FANZA_COMMAND, HELP_COMMAND].map((command) => command.toJSON());
+  return [DLsite_COMMAND, FANZA_COMMAND, SEARCH_COMMAND, HELP_COMMAND].map((command) =>
+    command.toJSON(),
+  );
+}
+
+export function resolveSearchQuery(params: {
+  store: string;
+  keyword: string;
+  sort: string | null;
+  priceMin: number | null;
+  priceMax: number | null;
+  circle: string | null;
+}): SearchQuery {
+  return {
+    target: params.store as SearchTarget,
+    keyword: params.keyword,
+    ...(params.sort ? { sort: params.sort as SearchSortKey } : {}),
+    ...(params.priceMin !== null ? { priceMin: params.priceMin } : {}),
+    ...(params.priceMax !== null ? { priceMax: params.priceMax } : {}),
+    ...(params.circle ? { circle: params.circle } : {}),
+  };
 }
 
 export function resolvePreviewReference(params: {
@@ -156,6 +243,7 @@ export function buildHelpMessage(topic?: HelpTopic): string {
       "コマンド一覧",
       "/dlsite maniax|books|pro input:<ID or URL>",
       "/fanza doujin|av|game|book input:<ID or URL>",
+      "/search store:<store> keyword:<keyword> [sort] [price_min] [price_max] [circle]",
       "/help [command]",
       "",
       "入力形式",

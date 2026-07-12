@@ -27,3 +27,20 @@ export class ParseWorkError extends Error {
     this.rjCode = rjCode;
   }
 }
+
+export class FetchSearchPageError extends Error {
+  readonly code: "http_error" | "network_error" | "unexpected_page";
+  readonly status: number | null;
+
+  constructor(params: {
+    code: "http_error" | "network_error" | "unexpected_page";
+    message: string;
+    status?: number | null;
+    cause?: unknown;
+  }) {
+    super(params.message, { cause: params.cause });
+    this.name = "FetchSearchPageError";
+    this.code = params.code;
+    this.status = params.status ?? null;
+  }
+}

@@ -14,6 +14,14 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["src/**", "tests/**", "*.json", "*.yml", "justfile", ".env.example"]
+    "includes": [
+      "src/**",
+      "tests/**",
+      "*.json",
+      "*.yml",
+      "justfile",
+      ".env.example",
+      "!tests/fixtures/**/*.html"
+    ]
   }
 }
