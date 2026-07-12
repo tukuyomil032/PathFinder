@@ -1,4 +1,4 @@
-import type { WorkStore } from "../rj/types";
+import type { DLSiteSurface, WorkStore } from "../rj/types";
 
 // dmm_tv_av（FANZA AV）は検索結果ページがNext.js SPAでfetch+cheerioでは
 // 取得できないことを実測確認済みのため対象外（docs参照）。
@@ -55,6 +55,19 @@ export function resolveStoreForTarget(target: SearchTarget): WorkStore {
       return "fanza_pcgame";
     case "fanza_books":
       return "fanza_books";
+  }
+}
+
+export function resolveDlsiteSurface(target: SearchTarget): DLSiteSurface {
+  switch (target) {
+    case "dlsite_maniax":
+      return "maniax";
+    case "dlsite_books":
+      return "books";
+    case "dlsite_pro":
+      return "pro";
+    default:
+      throw new TypeError(`resolveDlsiteSurface only supports DLsite targets, got ${target}`);
   }
 }
 

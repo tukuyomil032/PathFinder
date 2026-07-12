@@ -1,6 +1,10 @@
 import { getEnv } from "../../config/env";
-import type { DLSiteSurface } from "../../domain/rj/types";
-import type { SearchQuery, SearchSortKey, SearchTarget } from "../../domain/search/types";
+import {
+  resolveDlsiteSurface,
+  type SearchQuery,
+  type SearchSortKey,
+  type SearchTarget,
+} from "../../domain/search/types";
 import { FetchSearchPageError } from "./errors";
 
 const DLSITE_HOST = "www.dlsite.com";
@@ -26,19 +30,6 @@ export type DlsiteSearchAjaxResult = {
   firstIndice: number | null;
   lastIndice: number | null;
 };
-
-export function resolveDlsiteSurface(target: SearchTarget): DLSiteSurface {
-  switch (target) {
-    case "dlsite_maniax":
-      return "maniax";
-    case "dlsite_books":
-      return "books";
-    case "dlsite_pro":
-      return "pro";
-    default:
-      throw new TypeError(`resolveDlsiteSurface only supports DLsite targets, got ${target}`);
-  }
-}
 
 /**
  * DLsite の軽量検索AJAXエンドポイント（/fsr/ajax/=/...）のURLを組み立てる。

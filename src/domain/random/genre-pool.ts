@@ -1,7 +1,6 @@
 import { fetchFanzaDoujinGenreList } from "../../integrations/dmm/genre-list";
 import { fetchGenreList as fetchDlsiteGenreList } from "../../integrations/dlsite/genre-list";
-import { resolveDlsiteSurface } from "../../integrations/dlsite/search-work";
-import type { SearchTarget } from "../search/types";
+import { resolveDlsiteSurface, type SearchTarget } from "../search/types";
 
 export type GenreEntry = { id: string; name: string };
 
