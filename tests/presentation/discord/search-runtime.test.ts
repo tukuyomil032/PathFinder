@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createCirclePool } from "../../../src/domain/random/circle-pool";
 import { createSearchSessionCache } from "../../../src/domain/search/session-cache";
 import type {
   RawSearchPage,
@@ -89,6 +90,26 @@ describe("createSearchRuntime", () => {
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
     const payload = interaction.editReply.mock.calls[0][0];
     expect(payload.embeds).toHaveLength(10);
+  });
+
+  it("records every fetched item's maker into the circle pool for /random to reuse", async () => {
+    const fetcher = vi.fn().mockResolvedValue(page([item("RJ0"), item("RJ1"), item("RJ2")], false));
+    const circlePool = createCirclePool();
+    const deps: SearchRuntimeDeps = {
+      sessionCache: createSearchSessionCache(60_000),
+      resolveFetcher: () => fetcher,
+      idleTimeoutMs: 60_000,
+      circlePool,
+    };
+    const runtime = createSearchRuntime(deps);
+    const interaction = createMockInteraction();
+
+    await runtime.resolve(baseQuery, interaction as never, true);
+
+    expect(circlePool.pickRandom("dlsite", () => 0)).toEqual({
+      makerId: "RG1",
+      makerName: "Circle",
+    });
   });
 
   it("gates adult-only targets in non-nsfw channels without fetching or deferring", async () => {

@@ -1,4 +1,5 @@
 import { getEnv } from "../../config/env";
+import type { CirclePool } from "../../domain/random/circle-pool";
 import { createRjCache, type RjCache } from "../../domain/rj/cache";
 import { fetchWorkPage, parseWork, WorkPreviewResolutionError } from "../../domain/rj/resolve-work";
 import type { FetchedWorkPage, WorkPreview, WorkReference } from "../../domain/rj/types";
@@ -8,6 +9,7 @@ import {
   type DiscordReplyPayload,
   type FailureMessageKind,
 } from "./build-preview-message";
+import { getSharedCirclePool } from "./shared-random-pools";
 
 export type PreviewRuntimeDeps = {
   cache: RjCache;
@@ -21,6 +23,8 @@ export type PreviewRuntimeDeps = {
     workId?: string,
     kind?: FailureMessageKind,
   ) => ReturnType<typeof buildFailureMessage>;
+  // /randomのサークルfacet用プール。成功時にmakerId/makerNameを記録する（任意、省略可）。
+  circlePool?: CirclePool;
   log?: Partial<Pick<Console, "error" | "info">>;
 };
 
@@ -44,6 +48,8 @@ export function createPreviewRuntime(deps: PreviewRuntimeDeps) {
         if (!cachedWork || shouldRefresh) {
           deps.cache.set(reference, work);
         }
+
+        deps.circlePool?.record(work.store, work.makerId, work.makerName);
 
         deps.log?.info?.("Resolved work preview", {
           store: work.store,
@@ -88,6 +94,7 @@ export function getRuntimePreviewRuntime() {
     parseWork,
     buildPreviewMessage,
     buildFailureMessage,
+    circlePool: getSharedCirclePool(),
     log: console,
   });
 
