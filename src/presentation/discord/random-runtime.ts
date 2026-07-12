@@ -19,6 +19,7 @@ import {
   isAdultOnlyTarget,
   resolveStoreForTarget,
   type SearchQuery,
+  type SearchResultItem,
   type SearchTarget,
 } from "../../domain/search/types";
 import { buildPreviewMessage } from "./build-preview-message";
@@ -26,6 +27,118 @@ import { buildSearchFailureMessage, type DiscordReplyPayload } from "./build-sea
 import { getSharedCirclePool, getSharedGenrePool } from "./shared-random-pools";
 
 const MAX_RANDOM_ATTEMPTS = 3;
+
+// 複数件抽選（resolveBatch）用の定数。1件あたりの試行回数の目安は単一版と同じ
+// MAX_RANDOM_ATTEMPTSを踏襲し、TARGET_COUNT件分の合計試行回数に上限を設ける。
+export const RANDOM_BATCH_TARGET_COUNT = 5;
+
+export type RandomResolvedWork = { item: SearchResultItem; work: WorkPreview };
+
+type AttemptOutcome = { ok: true; result: RandomResolvedWork } | { ok: false; noResults: boolean };
+
+type AttemptDeps = {
+  resolveFetcher: typeof resolveSearchFetcher;
+  genrePool: GenrePool;
+  circlePool: CirclePool;
+  fetchWorkPage: (reference: WorkReference) => Promise<FetchedWorkPage>;
+  parseWork: (page: FetchedWorkPage, reference: WorkReference) => WorkPreview;
+  random: () => number;
+};
+
+/**
+ * 1件分の抽選〜作品詳細取得を1回試みる。候補クエリの組み立て（buildCandidateQuery）
+ * が乱数選択に依存する都合上、resolveBatch内で複数回呼ばれるたびに毎回独立して
+ * store（省略時）・facetが再抽選される。
+ */
+async function attemptOnce(
+  target: SearchTarget,
+  keyword: string,
+  deps: AttemptDeps,
+): Promise<AttemptOutcome> {
+  try {
+    const query = await buildCandidateQuery(target, keyword, {
+      genrePool: deps.genrePool,
+      circlePool: deps.circlePool,
+      random: deps.random,
+    });
+    const item = await pickRandomSearchResultItem(query, {
+      fetcher: deps.resolveFetcher(target),
+      random: deps.random,
+    });
+
+    deps.circlePool.record(item.store, item.makerId, item.makerName);
+
+    const reference: WorkReference = {
+      store: item.store,
+      id: item.id,
+      kind: "url",
+      sourceUrl: item.url,
+      matchedText: item.url,
+    };
+
+    const page = await deps.fetchWorkPage(reference);
+    const work = deps.parseWork(page, reference);
+    deps.circlePool.record(work.store, work.makerId, work.makerName);
+
+    return { ok: true, result: { item, work } };
+  } catch (error) {
+    return { ok: false, noResults: error instanceof NoRandomResultsError };
+  }
+}
+
+export type ResolveBatchResult = { results: RandomResolvedWork[]; sawRealError: boolean };
+
+/**
+ * 最大targetCount件を並列ワーカープールで抽選する。各workerは目標件数に達するか
+ * 合計試行回数の上限に達するまでattemptOnceを繰り返すため、個別の枠が失敗しても
+ * 同じworker内で自動的に新しい候補へ差し替わる（＝部分失敗の埋め合わせ）。
+ * 目標件数に満たないまま上限に達した場合は、その時点で集まった件数
+ * （0件のこともある）をそのまま返す。
+ */
+export async function resolveBatch(
+  target: SearchTarget,
+  keyword: string,
+  deps: AttemptDeps,
+  targetCount: number = RANDOM_BATCH_TARGET_COUNT,
+  maxTotalAttempts: number = targetCount * MAX_RANDOM_ATTEMPTS,
+): Promise<ResolveBatchResult> {
+  const state = {
+    results: [] as RandomResolvedWork[],
+    reserved: 0,
+    attempts: 0,
+    sawRealError: false,
+  };
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      // reserved/attemptsの判定と加算はawaitを挟まず同期的に行うことで、
+      // 複数workerが同時に目標件数を超えて予約してしまう競合を防ぐ
+      // （resultsは非同期処理の完了後にしか増えないため、resultsだけを見て
+      // 判定するとtargetCountを超過してpushされ得る）。
+      if (state.reserved >= targetCount || state.attempts >= maxTotalAttempts) {
+        return;
+      }
+
+      state.reserved += 1;
+      state.attempts += 1;
+      const outcome = await attemptOnce(target, keyword, deps);
+
+      if (outcome.ok) {
+        state.results.push(outcome.result);
+      } else {
+        state.reserved -= 1;
+
+        if (!outcome.noResults) {
+          state.sawRealError = true;
+        }
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: targetCount }, () => worker()));
+
+  return { results: state.results, sawRealError: state.sawRealError };
+}
 
 export type RandomQueryInput = {
   target: SearchTarget | null;

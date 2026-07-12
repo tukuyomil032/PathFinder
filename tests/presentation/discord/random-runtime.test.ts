@@ -5,6 +5,7 @@ import type { FetchedWorkPage, WorkPreview } from "../../../src/domain/rj/types"
 import type { RawSearchPage, SearchResultItem } from "../../../src/domain/search/types";
 import {
   createRandomRuntime,
+  resolveBatch,
   type RandomRuntimeDeps,
 } from "../../../src/presentation/discord/random-runtime";
 
@@ -87,6 +88,65 @@ function createDeps(overrides: Partial<RandomRuntimeDeps> = {}): RandomRuntimeDe
     ...overrides,
   };
 }
+
+describe("resolveBatch", () => {
+  function batchDeps(overrides: Record<string, unknown> = {}) {
+    return {
+      resolveFetcher: vi.fn().mockReturnValue(vi.fn().mockResolvedValue(page([item("RJ1")], 1))),
+      genrePool: createGenrePool(60_000, { fetchGenreList: async () => [] }),
+      circlePool: createCirclePool(),
+      fetchWorkPage: vi.fn().mockResolvedValue(samplePage),
+      parseWork: vi.fn().mockReturnValue(sampleWork),
+      random: () => 0,
+      ...overrides,
+    };
+  }
+
+  it("resolves targetCount items in parallel when every attempt succeeds", async () => {
+    const deps = batchDeps();
+
+    const { results, sawRealError } = await resolveBatch("dlsite_maniax", "", deps as never, 3);
+
+    expect(results).toHaveLength(3);
+    expect(sawRealError).toBe(false);
+  });
+
+  it("backfills a failing slot with a fresh attempt inside the same worker", async () => {
+    // targetCount=1 keeps this deterministic (a single worker, no cross-worker
+    // interleaving ambiguity) while still exercising the retry-within-worker path.
+    const fetchWorkPage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValue(samplePage);
+    const deps = batchDeps({ fetchWorkPage });
+
+    const { results } = await resolveBatch("dlsite_maniax", "", deps as never, 1, 10);
+
+    expect(results).toHaveLength(1);
+    expect(fetchWorkPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops at maxTotalAttempts and returns fewer than targetCount when every attempt fails", async () => {
+    const fetchWorkPage = vi.fn().mockRejectedValue(new Error("boom"));
+    const deps = batchDeps({ fetchWorkPage });
+
+    const { results, sawRealError } = await resolveBatch("dlsite_maniax", "", deps as never, 3, 6);
+
+    expect(results).toHaveLength(0);
+    expect(fetchWorkPage).toHaveBeenCalledTimes(6);
+    expect(sawRealError).toBe(true);
+  });
+
+  it("reports sawRealError=false when the population itself is empty (NoRandomResultsError)", async () => {
+    const emptyFetcher = vi.fn().mockResolvedValue(page([], 0));
+    const deps = batchDeps({ resolveFetcher: () => emptyFetcher });
+
+    const { results, sawRealError } = await resolveBatch("dlsite_maniax", "", deps as never, 2, 4);
+
+    expect(results).toHaveLength(0);
+    expect(sawRealError).toBe(false);
+  });
+});
 
 describe("createRandomRuntime", () => {
   it("defers the reply before doing any upstream work", async () => {
