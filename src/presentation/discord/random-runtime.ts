@@ -27,7 +27,6 @@ import {
   resolveSearchFetcher,
 } from "../../domain/search/resolve-search";
 import {
-  isAdultOnlyTarget,
   resolveStoreForTarget,
   type SearchQuery,
   type SearchTarget,
@@ -66,10 +65,12 @@ type AttemptDeps = {
  * store（省略時）・facetが再抽選される。
  */
 async function attemptOnce(
-  target: SearchTarget,
+  targetInput: SearchTarget | null,
   keyword: string,
   deps: AttemptDeps,
 ): Promise<AttemptOutcome> {
+  const target = targetInput ?? pickRandomTarget(deps.random);
+
   try {
     const query = await buildCandidateQuery(target, keyword, {
       genrePool: deps.genrePool,
@@ -111,7 +112,7 @@ export type ResolveBatchResult = { results: RandomResolvedWork[]; sawRealError: 
  * （0件のこともある）をそのまま返す。
  */
 export async function resolveBatch(
-  target: SearchTarget,
+  target: SearchTarget | null,
   keyword: string,
   deps: AttemptDeps,
   targetCount: number = RANDOM_BATCH_TARGET_COUNT,
@@ -122,6 +123,7 @@ export async function resolveBatch(
     reserved: 0,
     attempts: 0,
     sawRealError: false,
+    stop: false,
   };
 
   async function worker(): Promise<void> {
@@ -130,7 +132,7 @@ export async function resolveBatch(
       // 複数workerが同時に目標件数を超えて予約してしまう競合を防ぐ
       // （resultsは非同期処理の完了後にしか増えないため、resultsだけを見て
       // 判定するとtargetCountを超過してpushされ得る）。
-      if (state.reserved >= targetCount || state.attempts >= maxTotalAttempts) {
+      if (state.stop || state.reserved >= targetCount || state.attempts >= maxTotalAttempts) {
         return;
       }
 
@@ -145,6 +147,11 @@ export async function resolveBatch(
 
         if (!outcome.noResults) {
           state.sawRealError = true;
+        } else if (keyword) {
+          // keyword明示時はクエリが常に同一のため、1回0件と判明すれば
+          // 以降のリトライも同じ結果になる。無駄な上流リクエストと
+          // レスポンス遅延を避けるため即座に全workerを停止する。
+          state.stop = true;
         }
       }
     }
@@ -225,17 +232,10 @@ export function createRandomRuntime(deps: RandomRuntimeDeps) {
       interaction: ChatInputCommandInteraction,
       allowAdultDetails: boolean,
     ): Promise<void> {
-      const target = input.target ?? pickRandomTarget(random);
-
-      if (isAdultOnlyTarget(target) && !allowAdultDetails) {
-        await interaction.reply(toReplyOptions(buildSearchFailureMessage("nsfw_gate")));
-        return;
-      }
-
       try {
         await interaction.deferReply();
 
-        const { results, sawRealError } = await resolveBatch(target, input.keyword, {
+        const { results, sawRealError } = await resolveBatch(input.target, input.keyword, {
           resolveFetcher: deps.resolveFetcher,
           genrePool: deps.genrePool,
           circlePool: deps.circlePool,
@@ -303,6 +303,12 @@ export function createRandomRuntime(deps: RandomRuntimeDeps) {
         return;
       }
 
+      // interaction.update()実行中に旧タイマーが発火すると、セッション削除
+      // (disableExpiredSession)とこの更新処理が競合してしまう。取得直後に
+      // 即座に止め、成功時はscheduleIdleTimerで、失敗時はcatch節で
+      // セッションが生きていれば再度張り直す。
+      clearIdleTimer(parsed.token);
+
       try {
         // 5件は全て事前に取得済みのため、prev/nextはインデックスの入れ替えのみで
         // 上流への再フェッチは発生しない（/searchのnextと異なりdeferUpdateも不要）。
@@ -320,6 +326,11 @@ export function createRandomRuntime(deps: RandomRuntimeDeps) {
         scheduleIdleTimer(updated.token, interaction.client);
       } catch (error) {
         deps.log?.error?.("Failed to update random page", error);
+
+        if (deps.sessionCache.get(parsed.token)) {
+          scheduleIdleTimer(parsed.token, interaction.client);
+        }
+
         const failurePayload = buildSearchFailureMessage("generic");
 
         if (interaction.deferred || interaction.replied) {

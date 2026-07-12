@@ -184,6 +184,48 @@ describe("resolveBatch", () => {
     expect(results).toHaveLength(0);
     expect(sawRealError).toBe(false);
   });
+
+  it("stops retrying once an explicit keyword yields no results instead of exhausting maxTotalAttempts", async () => {
+    // keyword明示時はクエリが常に同一になるため、1回0件と分かれば以降の
+    // リトライは全て同じ結果になる。targetCount回程度で打ち切られ、
+    // maxTotalAttempts（targetCount*3）までは到達しないはず。
+    const emptyFetcher = vi.fn().mockResolvedValue(page([], 0));
+    const deps = batchDeps({ resolveFetcher: () => emptyFetcher });
+
+    const { results, sawRealError } = await resolveBatch(
+      "dlsite_maniax",
+      "剣と魔法",
+      deps as never,
+      3,
+    );
+
+    expect(results).toHaveLength(0);
+    expect(sawRealError).toBe(false);
+    expect(emptyFetcher.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  it("re-picks a target independently per attempt when target is omitted", async () => {
+    const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
+    const resolveFetcher = vi.fn().mockReturnValue(fetcher);
+    const fetchWorkPage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValue(samplePage);
+    // genre/circleプールが空・1件ページのため、1試行あたりrandom()は3回消費される
+    // （target選択→buildCandidateQueryの候補選択→pickRandomSearchResultItemの
+    // インデックス選択）。1回目の試行(呼び出し1〜3)は先頭のtargetを、
+    // 2回目のリトライ(呼び出し4〜6)は末尾のtargetを確定的に選ばせる。
+    const randomSequence = [0, 0, 0, 0.999];
+    let callIndex = 0;
+    const random = () => randomSequence[callIndex++] ?? 0;
+    const deps = batchDeps({ resolveFetcher, fetchWorkPage, random });
+
+    const { results } = await resolveBatch(null, "", deps as never, 1, 2);
+
+    expect(results).toHaveLength(1);
+    expect(resolveFetcher).toHaveBeenNthCalledWith(1, "dlsite_maniax");
+    expect(resolveFetcher).toHaveBeenNthCalledWith(2, "fanza_doujin");
+  });
 });
 
 describe("createRandomRuntime", () => {
@@ -209,17 +251,21 @@ describe("createRandomRuntime", () => {
     );
   });
 
-  it("gates adult-only targets in non-nsfw channels without deferring", async () => {
-    const deps = createDeps();
+  it("proceeds with adult-only targets in non-nsfw channels and defers to per-work suppression", async () => {
+    const fetcher = vi.fn().mockResolvedValue(page([item("RJ1")], 1));
+    const deps = createDeps({ resolveFetcher: () => fetcher });
     const runtime = createRandomRuntime(deps);
     const interaction = createMockInteraction();
 
     await runtime.resolve({ target: "dlsite_pro", keyword: "" }, interaction as never, false);
 
-    expect(interaction.deferReply).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining("NSFW") }),
+    // store単位のNSFWゲートは撤廃済み。deferReplyまで進み、
+    // buildRandomResultMessage側の作品単位抑制に処理を委ねる。
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
     );
+    expect(interaction.reply).not.toHaveBeenCalled();
   });
 
   it("only auto-picks a store from IMPLEMENTED_SEARCH_TARGETS when target is omitted", async () => {
@@ -337,9 +383,8 @@ describe("createRandomRuntime", () => {
 
     await runtime.resolve({ target: "dlsite_maniax", keyword: "" }, interaction as never, true);
 
-    // sampleWork.makerId === "RG1" overwrites the pool's single "dlsite" slot last,
-    // but both records should have been attempted without throwing.
-    expect(circlePool.pickRandom("dlsite", () => 0)?.makerId).toBeDefined();
+    expect(circlePool.pickRandom("dlsite", () => 0)?.makerId).toBe("RG_ITEM");
+    expect(circlePool.pickRandom("dlsite", () => 0.99)?.makerId).toBe("RG1");
   });
 
   it("resolves up to RANDOM_BATCH_TARGET_COUNT works and creates a paginated session", async () => {
@@ -479,6 +524,35 @@ describe("createRandomRuntime", () => {
       expect(buttonInteraction.reply).toHaveBeenCalledWith(
         expect.objectContaining({ ephemeral: true, content: expect.stringContaining("失効") }),
       );
+    });
+
+    it("reschedules the idle timer after a failed page update so the session still expires", async () => {
+      const editMock = vi.fn().mockResolvedValue(undefined);
+      const channel = {
+        isTextBased: () => true,
+        nsfw: true,
+        messages: { fetch: vi.fn().mockResolvedValue({ edit: editMock }) },
+      };
+      const clientWithChannel = { channels: { fetch: vi.fn().mockResolvedValue(channel) } };
+      const deps = createDeps({ idleTimeoutMs: 5_000 });
+      const { runtime, token } = await resolveSession(deps);
+
+      const nextInteraction = createMockButtonInteraction(`random:${token}:next`, {
+        update: vi.fn().mockRejectedValue(new Error("update failed")),
+        client: clientWithChannel,
+      });
+      await runtime.handleButton(nextInteraction as never);
+
+      // clearIdleTimerで一旦止めた後、update失敗時にcatch節で再度張り直されているはず。
+      // セッション自体は削除されず生きたままである。
+      expect(deps.sessionCache.get(token)).toBeDefined();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(editMock).toHaveBeenCalledWith(
+        expect.objectContaining({ flags: MessageFlags.IsComponentsV2 }),
+      );
+      expect(deps.sessionCache.get(token)).toBeNull();
     });
   });
 
