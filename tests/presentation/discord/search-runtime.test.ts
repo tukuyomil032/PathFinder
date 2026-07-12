@@ -32,7 +32,11 @@ function createMockInteraction(overrides: Record<string, unknown> = {}) {
   return {
     channelId: "channel-1",
     client: { channels: { fetch: vi.fn() } },
+    deferred: false,
+    replied: false,
     reply: vi.fn().mockResolvedValue(undefined),
+    deferReply: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
     fetchReply: vi.fn().mockResolvedValue({ id: "message-1" }),
     ...overrides,
   };
@@ -42,7 +46,11 @@ function createMockButtonInteraction(customId: string, overrides: Record<string,
   return {
     customId,
     client: { channels: { fetch: vi.fn() } },
+    deferred: false,
+    replied: false,
     update: vi.fn().mockResolvedValue(undefined),
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
     reply: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
@@ -59,7 +67,7 @@ describe("createSearchRuntime", () => {
     vi.useRealTimers();
   });
 
-  it("buffers a full page on the first resolve and replies once", async () => {
+  it("buffers a full page on the first resolve and defers+edits the reply once", async () => {
     const fetcher = vi.fn().mockResolvedValue(
       page(
         Array.from({ length: 10 }, (_, i) => item(`RJ${i}`)),
@@ -77,12 +85,13 @@ describe("createSearchRuntime", () => {
     await runtime.resolve(baseQuery, interaction as never, true);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    expect(interaction.reply).toHaveBeenCalledTimes(1);
-    const payload = interaction.reply.mock.calls[0][0];
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledTimes(1);
+    const payload = interaction.editReply.mock.calls[0][0];
     expect(payload.embeds).toHaveLength(10);
   });
 
-  it("gates adult-only targets in non-nsfw channels without fetching", async () => {
+  it("gates adult-only targets in non-nsfw channels without fetching or deferring", async () => {
     const fetcher = vi.fn();
     const deps: SearchRuntimeDeps = {
       sessionCache: createSearchSessionCache(60_000),
@@ -95,15 +104,17 @@ describe("createSearchRuntime", () => {
     await runtime.resolve({ ...baseQuery, target: "dlsite_pro" }, interaction as never, false);
 
     expect(fetcher).not.toHaveBeenCalled();
+    expect(interaction.deferReply).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("NSFW") }),
     );
   });
 
-  it("does not call fetchReply when the search yields no results", async () => {
+  it("replies with the empty-result message and does not schedule an idle timer when the search yields no results", async () => {
     const fetcher = vi.fn().mockResolvedValue(page([], false));
+    const sessionCache = createSearchSessionCache(60_000);
     const deps: SearchRuntimeDeps = {
-      sessionCache: createSearchSessionCache(60_000),
+      sessionCache,
       resolveFetcher: () => fetcher,
       idleTimeoutMs: 60_000,
     };
@@ -112,7 +123,10 @@ describe("createSearchRuntime", () => {
 
     await runtime.resolve(baseQuery, interaction as never, true);
 
-    expect(interaction.fetchReply).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledTimes(1);
+    const payload = interaction.editReply.mock.calls[0][0];
+    expect(payload.content).toContain("見つかりませんでした");
+    expect(payload.embeds).toBeUndefined();
   });
 
   it("keeps fetching upstream pages until the client-side price filter fills a page", async () => {
@@ -141,7 +155,7 @@ describe("createSearchRuntime", () => {
     await runtime.resolve({ ...baseQuery, priceMin: 1500 }, interaction as never, true);
 
     expect(fetcher).toHaveBeenCalledTimes(2);
-    const payload = interaction.reply.mock.calls[0][0];
+    const payload = interaction.editReply.mock.calls[0][0];
     expect(payload.embeds).toHaveLength(10);
   });
 
@@ -170,15 +184,51 @@ describe("createSearchRuntime", () => {
     const interaction = createMockInteraction();
 
     await runtime.resolve(baseQuery, interaction as never, true);
-    const token = extractToken(interaction.reply.mock.calls[0][0]);
+    const token = extractToken(interaction.editReply.mock.calls[0][0]);
 
     const nextInteraction = createMockButtonInteraction(`search:${token}:next`);
     await runtime.handleButton(nextInteraction as never);
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(nextInteraction.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(nextInteraction.editReply).toHaveBeenCalledTimes(1);
 
     const prevInteraction = createMockButtonInteraction(`search:${token}:prev`);
     await runtime.handleButton(prevInteraction as never);
     expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(prevInteraction.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 12 items across two pages without duplicating any when total count is not a multiple of the page size", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      page(
+        Array.from({ length: 12 }, (_, i) => item(`RJ${i}`)),
+        false,
+      ),
+    );
+    const sessionCache = createSearchSessionCache(60_000);
+    const deps: SearchRuntimeDeps = {
+      sessionCache,
+      resolveFetcher: () => fetcher,
+      idleTimeoutMs: 60_000,
+    };
+    const runtime = createSearchRuntime(deps);
+    const interaction = createMockInteraction();
+
+    await runtime.resolve(baseQuery, interaction as never, true);
+    const firstPageIds = interaction.editReply.mock.calls[0][0].embeds.map(
+      (embed: { data: { title: string } }) => embed.data.title,
+    );
+    const token = extractToken(interaction.editReply.mock.calls[0][0]);
+
+    const nextInteraction = createMockButtonInteraction(`search:${token}:next`);
+    await runtime.handleButton(nextInteraction as never);
+    const secondPageIds = nextInteraction.editReply.mock.calls[0][0].embeds.map(
+      (embed: { data: { title: string } }) => embed.data.title,
+    );
+
+    expect(firstPageIds).toHaveLength(10);
+    expect(secondPageIds).toHaveLength(2);
+    expect(new Set([...firstPageIds, ...secondPageIds]).size).toBe(12);
   });
 
   it("replies with an ephemeral message when the session has expired", async () => {

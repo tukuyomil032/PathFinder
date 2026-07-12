@@ -2,6 +2,7 @@ import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
   Client,
+  InteractionEditReplyOptions,
   InteractionReplyOptions,
   InteractionUpdateOptions,
   MessageEditOptions,
@@ -90,6 +91,8 @@ export function createSearchRuntime(deps: SearchRuntimeDeps) {
       }
 
       try {
+        await interaction.deferReply();
+
         const token = crypto.randomUUID();
         let session: SearchSession = {
           token,
@@ -105,19 +108,26 @@ export function createSearchRuntime(deps: SearchRuntimeDeps) {
         session = await ensureBuffer(session, SEARCH_PAGE_SIZE, deps);
         deps.sessionCache.set(token, session);
 
-        await interaction.reply(toReplyOptions(buildSearchResultMessage(session)));
+        const reply = await interaction.editReply(
+          toEditReplyOptions(buildSearchResultMessage(session)),
+        );
 
         if (session.items.length === 0) {
           return;
         }
 
-        const reply = await interaction.fetchReply();
         session.messageId = reply.id;
         deps.sessionCache.set(token, session);
         scheduleIdleTimer(token, interaction.client);
       } catch (error) {
         deps.log?.error?.("Failed to resolve search", error);
-        await interaction.reply(toReplyOptions(buildSearchFailureMessage("generic")));
+        const failurePayload = buildSearchFailureMessage("generic");
+
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(toEditReplyOptions(failurePayload));
+        } else {
+          await interaction.reply(toReplyOptions(failurePayload));
+        }
       }
     },
 
@@ -140,18 +150,27 @@ export function createSearchRuntime(deps: SearchRuntimeDeps) {
       }
 
       try {
-        const updated =
-          parsed.action === "next" ? await goToNextPage(session, deps) : goToPreviousPage(session);
-
-        deps.sessionCache.set(updated.token, updated);
-        await interaction.update(toUpdateOptions(buildSearchResultMessage(updated)));
-        scheduleIdleTimer(updated.token, interaction.client);
+        if (parsed.action === "next") {
+          await interaction.deferUpdate();
+          const updated = await goToNextPage(session, deps);
+          deps.sessionCache.set(updated.token, updated);
+          await interaction.editReply(toEditReplyOptions(buildSearchResultMessage(updated)));
+          scheduleIdleTimer(updated.token, interaction.client);
+        } else {
+          const updated = goToPreviousPage(session);
+          deps.sessionCache.set(updated.token, updated);
+          await interaction.update(toUpdateOptions(buildSearchResultMessage(updated)));
+          scheduleIdleTimer(updated.token, interaction.client);
+        }
       } catch (error) {
         deps.log?.error?.("Failed to update search page", error);
-        await interaction.reply({
-          content: buildSearchFailureMessage("generic").content,
-          ephemeral: true,
-        });
+        const failurePayload = buildSearchFailureMessage("generic");
+
+        if (interaction.deferred || interaction.replied) {
+          await interaction.editReply(toEditReplyOptions(failurePayload));
+        } else {
+          await interaction.reply({ content: failurePayload.content, ephemeral: true });
+        }
       }
     },
   };
@@ -163,11 +182,10 @@ async function goToNextPage(
 ): Promise<SearchSession> {
   const targetCount = session.displayOffset + SEARCH_PAGE_SIZE * 2;
   const buffered = await ensureBuffer(session, targetCount, deps);
-  const maxOffset = Math.max(0, buffered.items.length - SEARCH_PAGE_SIZE);
 
   return {
     ...buffered,
-    displayOffset: Math.min(buffered.displayOffset + SEARCH_PAGE_SIZE, maxOffset),
+    displayOffset: Math.min(buffered.displayOffset + SEARCH_PAGE_SIZE, buffered.items.length),
   };
 }
 
@@ -238,6 +256,16 @@ function toUpdateOptions(payload: DiscordReplyPayload): InteractionUpdateOptions
 }
 
 function toEditOptions(payload: DiscordReplyPayload): MessageEditOptions {
+  return {
+    content: payload.content,
+    embeds: payload.embeds,
+    components: payload.components,
+    files: payload.files,
+    allowedMentions: payload.allowedMentions,
+  };
+}
+
+function toEditReplyOptions(payload: DiscordReplyPayload): InteractionEditReplyOptions {
   return {
     content: payload.content,
     embeds: payload.embeds,

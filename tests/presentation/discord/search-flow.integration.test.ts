@@ -62,14 +62,18 @@ describe("search flow integration", () => {
           name === "store" ? "dlsite_maniax" : name === "keyword" ? "RPG" : null,
         getInteger: () => null,
       },
+      deferred: false,
+      replied: false,
       reply: vi.fn().mockResolvedValue(undefined),
-      fetchReply: vi.fn().mockResolvedValue({ id: "message-1" }),
+      deferReply: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
     };
 
     await handler(commandInteraction as never);
 
     expect(fetcher).toHaveBeenCalledTimes(1);
-    const firstPagePayload = commandInteraction.reply.mock.calls[0][0];
+    expect(commandInteraction.deferReply).toHaveBeenCalledTimes(1);
+    const firstPagePayload = commandInteraction.editReply.mock.calls[0][0];
     expect(firstPagePayload.embeds).toHaveLength(10);
     const customId = firstPagePayload.components[0].toJSON().components[0].custom_id as string;
     const token = customId.match(/^search:(.+):(prev|next)$/)?.[1];
@@ -79,14 +83,19 @@ describe("search flow integration", () => {
       isButton: () => true,
       customId: `search:${token}:next`,
       client: { channels: { fetch: vi.fn() } },
+      deferred: false,
+      replied: false,
       update: vi.fn().mockResolvedValue(undefined),
+      deferUpdate: vi.fn().mockResolvedValue(undefined),
+      editReply: vi.fn().mockResolvedValue({ id: "message-1" }),
       reply: vi.fn().mockResolvedValue(undefined),
     };
 
     await handler(buttonInteraction as never);
 
     expect(fetcher).toHaveBeenCalledTimes(2);
-    const secondPagePayload = buttonInteraction.update.mock.calls[0][0];
+    expect(buttonInteraction.deferUpdate).toHaveBeenCalledTimes(1);
+    const secondPagePayload = buttonInteraction.editReply.mock.calls[0][0];
     expect(secondPagePayload.embeds).toHaveLength(10);
     expect(secondPagePayload.embeds[0].data.title).toBe("Title RJ20");
   });
