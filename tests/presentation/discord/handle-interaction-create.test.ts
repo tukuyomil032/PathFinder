@@ -281,4 +281,21 @@ describe("createInteractionHandler", () => {
     await handler(otherButton as never);
     expect(searchRuntime.handleButton).toHaveBeenCalledTimes(1);
   });
+
+  it("routes random: button interactions to the random runtime and ignores others", async () => {
+    const randomRuntime = { resolve: vi.fn(), handleButton: vi.fn().mockResolvedValue(undefined) };
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: randomRuntime as never,
+    });
+
+    const randomButton = createMockButtonInteraction("random:token-1:next");
+    await handler(randomButton as never);
+    expect(randomRuntime.handleButton).toHaveBeenCalledWith(randomButton);
+
+    const otherButton = createMockButtonInteraction("something-else:token-1");
+    await handler(otherButton as never);
+    expect(randomRuntime.handleButton).toHaveBeenCalledTimes(1);
+  });
 });

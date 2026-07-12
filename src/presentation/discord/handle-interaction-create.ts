@@ -28,6 +28,8 @@ export function createInteractionHandler(deps: InteractionCreateDeps) {
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("search:")) {
         await deps.searchRuntime.handleButton(interaction);
+      } else if (interaction.customId.startsWith("random:")) {
+        await deps.randomRuntime.handleButton(interaction);
       }
       return;
     }
