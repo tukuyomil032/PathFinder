@@ -86,6 +86,7 @@ function parseFanzaDoujinPage(
     common.jsonLd?.brand?.name ??
     readText($, ".makerName__txt, #maker, .maker_name a, .circleName") ??
     readDefinitionValue($, ["サークル名", "ブランド", "メーカー"]);
+  const makerId = readMakerId($, ".circleInfo .circleName a, .makerName__txt a");
   const tags = readTags($);
   const ageCategory =
     readDefinitionValue($, ["年齢指定", "年齢"]) ??
@@ -116,6 +117,7 @@ function parseFanzaDoujinPage(
     title: common.title,
     url: common.url,
     makerName,
+    makerId,
     ageCategory,
     isAdult: true,
     price,
@@ -177,6 +179,7 @@ function parseDmmTvPage(
     title: common.title,
     url: common.url,
     makerName,
+    makerId: null,
     ageCategory: readDefinitionValue($, ["年齢指定"]) ?? "成人向け",
     isAdult: true,
     price,
@@ -238,6 +241,7 @@ function parseFanzaPcGamePage(
     title: common.title,
     url: common.url,
     makerName,
+    makerId: null,
     ageCategory: readDefinitionValue($, ["対象"]) ?? "18歳未満購入禁止",
     isAdult: true,
     price,
@@ -298,6 +302,7 @@ function parseFanzaBooksPage(
     title: common.title,
     url: common.url,
     makerName: author ?? label,
+    makerId: null,
     ageCategory: readDefinitionValue($, ["年齢指定"]) ?? "成人向け",
     isAdult: true,
     price,
@@ -325,6 +330,11 @@ function parseFanzaBooksPage(
     },
     parserName: missingFields.length === 0 ? "fanza_books/product" : "fanza_books/product-partial",
   };
+}
+
+function readMakerId($: CheerioAPI, selector: string): string | null {
+  const href = $(selector).first().attr("href");
+  return href?.match(/article=maker\/id=(\d+)/i)?.[1] ?? null;
 }
 
 function readCommonMeta($: CheerioAPI, resolvedUrl: string): CommonMeta {

@@ -26,6 +26,7 @@ export function parseWork(html: string, reference: WorkReference | string): DLSi
     readMetaContent($, "meta[property='og:url']") ??
     buildWorkUrl(workId);
   const makerName = readMakerName($, surface, jsonLd?.brand?.name);
+  const makerId = readMakerId($);
   const ageCategory = readText($, ".age_category") ?? readDefinitionValue($, ["年齢指定", "年齢"]);
 
   const missingFields = [
@@ -52,6 +53,7 @@ export function parseWork(html: string, reference: WorkReference | string): DLSi
     title,
     url,
     makerName,
+    makerId,
     ageCategory,
     isAdult: isAdultCategory(ageCategory),
     price: readText($, "[data-testid='work-price']") ?? readDefinitionValue($, ["価格"]),
@@ -112,6 +114,11 @@ function readMakerName(
     jsonLdBrandName ??
     null
   );
+}
+
+function readMakerId($: CheerioAPI): string | null {
+  const href = $(".maker_name a").first().attr("href");
+  return href?.match(/maker_id\/([A-Za-z0-9]+)\.html/i)?.[1] ?? null;
 }
 
 function resolveSurface(workId: string): DLSiteSurface {

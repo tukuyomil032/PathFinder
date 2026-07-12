@@ -18,6 +18,7 @@ describe("parseWork", () => {
       title: "星巡りの耳かき",
       url: "https://www.dlsite.com/maniax/work/=/product_id/RJ012345.html",
       makerName: "月明かりラボ",
+      makerId: "RG70730",
       price: "1,320円",
       salePrice: "990円",
       ageCategory: "18禁",
@@ -48,6 +49,7 @@ describe("parseWork", () => {
     expect(work.voiceActors).toEqual([]);
     expect(work.fileFormat).toBeNull();
     expect(work.isAdult).toBe(false);
+    expect(work.makerId).toBeNull();
   });
 
   it("parses books fixtures with author-priority metadata", () => {
@@ -67,6 +69,7 @@ describe("parseWork", () => {
       parserName: "dlsite/books",
     });
     expect(work.rawAttributes).toEqual({ surface: "books" });
+    expect(work.makerId).toBeNull();
   });
 
   it("parses pro fixtures with brand metadata", () => {
@@ -86,6 +89,7 @@ describe("parseWork", () => {
       parserName: "dlsite/pro",
     });
     expect(work.rawAttributes).toEqual({ surface: "pro" });
+    expect(work.makerId).toBeNull();
   });
 
   it("throws when required fields are missing", () => {

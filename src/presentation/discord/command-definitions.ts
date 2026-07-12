@@ -9,6 +9,7 @@ import {
 import { extractDmmReferenceFromUrl, normalizeDmmId } from "../../integrations/dmm/fetch-work-page";
 import type { DLSiteSurface, WorkReference, WorkStore } from "../../domain/rj/types";
 import type { SearchQuery, SearchSortKey, SearchTarget } from "../../domain/search/types";
+import type { RandomQueryInput } from "./random-runtime";
 
 export const PREVIEW_INPUT_OPTION_NAME = "input";
 export const HELP_COMMAND_OPTION_NAME = "command";
@@ -19,6 +20,10 @@ export const SEARCH_OPTION_NAMES = {
   priceMin: "price_min",
   priceMax: "price_max",
   circle: "circle",
+} as const;
+export const RANDOM_OPTION_NAMES = {
+  store: "store",
+  keyword: "keyword",
 } as const;
 
 type PreviewCommandName = "dlsite" | "fanza";
@@ -123,7 +128,7 @@ const FANZA_COMMAND = new SlashCommandBuilder()
       ),
   );
 
-const SEARCH_TARGET_CHOICES: Array<{ name: string; value: SearchTarget }> = [
+export const SEARCH_TARGET_CHOICES: Array<{ name: string; value: SearchTarget }> = [
   { name: "DLsite 同人 (maniax)", value: "dlsite_maniax" },
   { name: "DLsite Books", value: "dlsite_books" },
   { name: "DLsite 美少女ゲーム (pro)", value: "dlsite_pro" },
@@ -181,6 +186,23 @@ const SEARCH_COMMAND = new SlashCommandBuilder()
       .setRequired(false),
   );
 
+const RANDOM_COMMAND = new SlashCommandBuilder()
+  .setName("random")
+  .setDescription("DLSite / FANZA からランダムに作品と出会います")
+  .addStringOption((option) =>
+    option
+      .setName(RANDOM_OPTION_NAMES.store)
+      .setDescription("対象ストア/カテゴリ（省略時はランダム）")
+      .setRequired(false)
+      .addChoices(...SEARCH_TARGET_CHOICES),
+  )
+  .addStringOption((option) =>
+    option
+      .setName(RANDOM_OPTION_NAMES.keyword)
+      .setDescription("絞り込みキーワード（省略時は全カタログからランダム）")
+      .setRequired(false),
+  );
+
 const HELP_COMMAND = new SlashCommandBuilder()
   .setName("help")
   .setDescription("コマンド一覧と入力例を表示します")
@@ -197,8 +219,8 @@ const HELP_COMMAND = new SlashCommandBuilder()
   );
 
 export function buildApplicationCommands(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
-  return [DLsite_COMMAND, FANZA_COMMAND, SEARCH_COMMAND, HELP_COMMAND].map((command) =>
-    command.toJSON(),
+  return [DLsite_COMMAND, FANZA_COMMAND, SEARCH_COMMAND, RANDOM_COMMAND, HELP_COMMAND].map(
+    (command) => command.toJSON(),
   );
 }
 
@@ -217,6 +239,16 @@ export function resolveSearchQuery(params: {
     ...(params.priceMin !== null ? { priceMin: params.priceMin } : {}),
     ...(params.priceMax !== null ? { priceMax: params.priceMax } : {}),
     ...(params.circle ? { circle: params.circle } : {}),
+  };
+}
+
+export function resolveRandomQuery(params: {
+  store: string | null;
+  keyword: string | null;
+}): RandomQueryInput {
+  return {
+    target: (params.store as SearchTarget | null) ?? null,
+    keyword: params.keyword ?? "",
   };
 }
 
@@ -244,6 +276,7 @@ export function buildHelpMessage(topic?: HelpTopic): string {
       "/dlsite maniax|books|pro input:<ID or URL>",
       "/fanza doujin|av|game|book input:<ID or URL>",
       "/search store:<store> keyword:<keyword> [sort] [price_min] [price_max] [circle]",
+      "/random [store] [keyword] - ランダムに作品と出会います（両方省略可）",
       "/help [command]",
       "",
       "入力形式",

@@ -8,6 +8,7 @@ const sampleWork: DLSiteWork = {
   title: "Sample",
   url: "https://example.com",
   makerName: "Circle",
+  makerId: null,
   ageCategory: "18禁",
   isAdult: true,
   price: "1,100円",

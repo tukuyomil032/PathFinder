@@ -8,6 +8,7 @@ import type {
   MessageEditOptions,
 } from "discord.js";
 import { getEnv } from "../../config/env";
+import type { CirclePool } from "../../domain/random/circle-pool";
 import { resolveSearchFetcher, type SearchFetcher } from "../../domain/search/resolve-search";
 import {
   createSearchSessionCache,
@@ -26,6 +27,7 @@ import {
   SEARCH_PAGE_SIZE,
   type DiscordReplyPayload,
 } from "./build-search-message";
+import { getSharedCirclePool } from "./shared-random-pools";
 
 const MAX_RAW_PAGES_PER_STEP = 20;
 
@@ -33,6 +35,8 @@ export type SearchRuntimeDeps = {
   sessionCache: SearchSessionCache;
   resolveFetcher: (target: SearchQuery["target"]) => SearchFetcher;
   idleTimeoutMs: number;
+  // /randomのサークルfacet用プール。取得したページの全アイテムを記録する（任意、省略可）。
+  circlePool?: CirclePool;
   log?: Partial<Pick<Console, "error" | "info">>;
 };
 
@@ -206,6 +210,11 @@ async function ensureBuffer(
 
   while (items.length < targetCount && !exhausted && fetchedThisStep < MAX_RAW_PAGES_PER_STEP) {
     const page = await fetcher(session.query, nextRawPage);
+
+    for (const item of page.items) {
+      deps.circlePool?.record(item.store, item.makerId, item.makerName);
+    }
+
     items.push(...applyClientSideFilters(page.items, session.query));
     nextRawPage += 1;
     exhausted = !page.hasNext;
@@ -292,6 +301,7 @@ export function getRuntimeSearchRuntime() {
     sessionCache: createSearchSessionCache(getEnv().SEARCH_SESSION_TTL_MS),
     resolveFetcher: resolveSearchFetcher,
     idleTimeoutMs: getEnv().SEARCH_SESSION_TTL_MS,
+    circlePool: getSharedCirclePool(),
     log: console,
   });
 

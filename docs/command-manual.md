@@ -14,6 +14,7 @@
 - `/fanza av input:<string>`
 - `/fanza game input:<string>`
 - `/fanza book input:<string>`
+- `/random [store] [keyword]`
 - `/help [command]`
 
 ## 3. Accepted Input Formats
@@ -31,6 +32,17 @@
 - `game`: `spal_0201` または `https://dlsoft.dmm.co.jp/detail/spal_0201/`
 - `book`: `b915awnmg04288` または `https://book.dmm.co.jp/product/123456/b915awnmg04288/`
 
+### `/random`
+
+- `store`: DLsite同人/Books/pro、FANZA同人/PCゲーム/BOOKSの6択（任意、省略時は実装済みのstoreからランダム）
+- `keyword`: 任意。指定するとその語にヒットする作品群からランダムに選ぶ（`/search`と同じ絞り込み）
+- 両方省略すると、対象storeの全カタログブラウズ・ジャンルfacet・サークルfacetのいずれかをランダムに選んで抽選する
+  - ジャンル/サークルfacetはBot使用実績が溜まるほど候補が増える（起動直後はブラウズのみ）
+- 価格帯・声優はランダム抽選の対象外
+- 1回の実行で最大5件を同時に抽選する。各件は独立してstore（省略時）・ジャンル/サークルfacetを再抽選するため、5件が異なるstore/条件から集まることがある
+- 結果はDiscord Components V2で表示される。まとめブロック（全件、商品名リンク・サークル・価格・発売日・評価・声優または著者、サムネイルなし）が常に上部にあり、その下に現在選択中の1件の詳細（サムネイルあり）が表示される。Prev/Nextボタンで詳細ブロックのみを切り替える（上流への再フェッチは発生しない）
+- 個別の抽選枠が失敗（削除済み等）した場合は自動的に別の候補で埋め合わせる。それでも目標件数に届かなければ、揃った件数（5件未満）だけ表示する
+
 ## 4. Success Examples
 
 - `/dlsite maniax input:RJ012345`
@@ -39,6 +51,9 @@
 - `/fanza av input:https://tv.dmm.co.jp/detail/?content=mide00924`
 - `/help`
 - `/help fanza`
+- `/random`
+- `/random store:dlsite_maniax`
+- `/random store:fanza_doujin keyword:ロリ`
 
 ## 5. Failure Examples
 
@@ -48,6 +63,10 @@
   - `game` は `spal_0201` のような slug または FANZA GAMES URL のみ受け付ける。
 - `/fanza doujin input:d123456`
   - bare ID から canonical URL を解決できない場合、通常失敗ではなく URL 付き送信の案内を返す。
+- `/random store:fanza_doujin keyword:<該当0件になる語>`
+  - 抽選候補が0件のため、該当する作品が見つからなかった旨のメッセージを返す（リトライしない）。
+- `/random store:fanza_pcgame`
+  - FANZA PCゲーム/BOOKSは検索フェッチャー未実装のため、`/search`と同じ汎用エラーになる（既知の制限）。
 
 ## 6. NSFW Visibility
 
@@ -56,6 +75,7 @@
 - 非NSFWチャンネルでは DLSite 成人向け作品の詳細を抑制する。
 - 非NSFWチャンネルでは DMM family 全体を最小情報表示に倒す。
 - NSFWチャンネルでは通常の詳細 Embed を返す。
+- `/random`はstore単位の事前ゲートを行わない。抽選対象がadult-only想定のstore（`dlsite_maniax`以外）であっても解決自体は進め、まとめブロック・詳細ブロックの両方で作品単位に同じマスキング基準（`shouldSuppress`）を適用する（非NSFWチャンネルの成人向け作品はタイトル・URLのみ表示）。
 
 ## 7. Auto Detection vs Slash Commands
 

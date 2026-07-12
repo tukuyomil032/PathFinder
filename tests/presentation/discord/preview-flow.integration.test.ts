@@ -10,6 +10,7 @@ const sampleWork: WorkPreview = {
   title: "星巡りの耳かき",
   url: "https://example.com/RJ012345",
   makerName: "月明かりラボ",
+  makerId: null,
   ageCategory: "全年齢",
   isAdult: false,
   price: "1,320円",

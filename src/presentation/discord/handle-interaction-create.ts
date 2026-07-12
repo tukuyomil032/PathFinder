@@ -3,7 +3,9 @@ import {
   buildHelpMessage,
   HELP_COMMAND_OPTION_NAME,
   PREVIEW_INPUT_OPTION_NAME,
+  RANDOM_OPTION_NAMES,
   resolvePreviewReference,
+  resolveRandomQuery,
   resolveSearchQuery,
   SEARCH_OPTION_NAMES,
 } from "./command-definitions";
@@ -12,11 +14,13 @@ import {
   shouldAllowAdultDetails,
   type PreviewRuntime,
 } from "./preview-runtime";
+import { getRuntimeRandomRuntime, type RandomRuntime } from "./random-runtime";
 import { getRuntimeSearchRuntime, type SearchRuntime } from "./search-runtime";
 
 type InteractionCreateDeps = {
   previewRuntime: PreviewRuntime;
   searchRuntime: SearchRuntime;
+  randomRuntime: RandomRuntime;
 };
 
 export function createInteractionHandler(deps: InteractionCreateDeps) {
@@ -24,6 +28,8 @@ export function createInteractionHandler(deps: InteractionCreateDeps) {
     if (interaction.isButton()) {
       if (interaction.customId.startsWith("search:")) {
         await deps.searchRuntime.handleButton(interaction);
+      } else if (interaction.customId.startsWith("random:")) {
+        await deps.randomRuntime.handleButton(interaction);
       }
       return;
     }
@@ -49,6 +55,20 @@ export function createInteractionHandler(deps: InteractionCreateDeps) {
 
       await deps.searchRuntime.resolve(
         query,
+        interaction,
+        shouldAllowAdultDetails(interaction.channel as never),
+      );
+      return;
+    }
+
+    if (interaction.commandName === "random") {
+      const input = resolveRandomQuery({
+        store: interaction.options.getString(RANDOM_OPTION_NAMES.store, false),
+        keyword: interaction.options.getString(RANDOM_OPTION_NAMES.keyword, false),
+      });
+
+      await deps.randomRuntime.resolve(
+        input,
         interaction,
         shouldAllowAdultDetails(interaction.channel as never),
       );
@@ -91,6 +111,7 @@ function getRuntimeHandler() {
   runtimeHandler ??= createInteractionHandler({
     previewRuntime: getRuntimePreviewRuntime(),
     searchRuntime: getRuntimeSearchRuntime(),
+    randomRuntime: getRuntimeRandomRuntime(),
   });
 
   return runtimeHandler;

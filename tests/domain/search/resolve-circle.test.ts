@@ -9,7 +9,9 @@ vi.mock("../../../src/integrations/dlsite/search-work", () => ({
   fetchCircleProfilePage: (...args: unknown[]) => fetchCircleProfilePage(...args),
 }));
 
-const { resolveSearchFetcher } = await import("../../../src/domain/search/resolve-search");
+const { resolveSearchFetcher, IMPLEMENTED_SEARCH_TARGETS } = await import(
+  "../../../src/domain/search/resolve-search"
+);
 
 const baseQuery: SearchQuery = { target: "dlsite_maniax", keyword: "夜霧" };
 
@@ -112,5 +114,44 @@ describe("resolveSearchFetcher circle resolution", () => {
     expect(fetchCircleProfilePage).not.toHaveBeenCalled();
     expect(page.items).toEqual([]);
     expect(page.hasNext).toBe(false);
+  });
+
+  it("fetches the circle catalog directly by makerId, skipping name resolution entirely (/random)", async () => {
+    fetchCircleProfilePage.mockResolvedValueOnce(
+      ajaxHtmlWithItems([
+        { id: "RJ01177942", title: "復讐の夜霧", makerName: "beebee工房", makerId: "RG70730" },
+        { id: "RJ01200000", title: "別の夜霧作品", makerName: "beebee工房", makerId: "RG70730" },
+      ]),
+    );
+
+    const fetcher = resolveSearchFetcher("dlsite_maniax");
+    const page = await fetcher({ ...baseQuery, keyword: "", makerId: "RG70730" }, 1);
+
+    expect(fetchSearchAjaxPage).not.toHaveBeenCalled();
+    expect(fetchCircleProfilePage).toHaveBeenCalledWith("dlsite_maniax", "RG70730");
+    expect(page.items).toHaveLength(2);
+    expect(page.hasNext).toBe(false);
+    expect(page.totalCount).toBe(2);
+  });
+});
+
+describe("IMPLEMENTED_SEARCH_TARGETS", () => {
+  it("only lists targets whose search fetcher is actually implemented", () => {
+    expect(IMPLEMENTED_SEARCH_TARGETS).toEqual([
+      "dlsite_maniax",
+      "dlsite_books",
+      "dlsite_pro",
+      "fanza_doujin",
+    ]);
+
+    for (const target of IMPLEMENTED_SEARCH_TARGETS) {
+      expect(() => resolveSearchFetcher(target)).not.toThrow();
+    }
+  });
+
+  it("excludes targets whose search fetcher throws", () => {
+    expect(IMPLEMENTED_SEARCH_TARGETS).not.toContain("fanza_pcgame");
+    expect(IMPLEMENTED_SEARCH_TARGETS).not.toContain("fanza_books");
+    expect(() => resolveSearchFetcher("fanza_pcgame")).toThrow(TypeError);
   });
 });

@@ -48,6 +48,7 @@ describe("search flow integration", () => {
     const handler = createInteractionHandler({
       previewRuntime: { resolve: vi.fn() } as never,
       searchRuntime,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     const commandInteraction = {

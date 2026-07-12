@@ -64,6 +64,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
       searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -92,6 +93,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
       searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -120,6 +122,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
       searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -143,6 +146,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
       searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -177,6 +181,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: previewRuntime as never,
       searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -201,6 +206,7 @@ describe("createInteractionHandler", () => {
     const handler = createInteractionHandler({
       previewRuntime: { resolve: vi.fn() } as never,
       searchRuntime: searchRuntime as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     await handler(interaction as never);
@@ -219,11 +225,52 @@ describe("createInteractionHandler", () => {
     );
   });
 
+  it("routes /random to the random runtime with the resolved query", async () => {
+    const randomRuntime = { resolve: vi.fn().mockResolvedValue(undefined) };
+    const interaction = createMockInteraction({
+      commandName: "random",
+      nsfw: true,
+      searchOptions: { store: "fanza_doujin", keyword: "ロリ" },
+    });
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: randomRuntime as never,
+    });
+
+    await handler(interaction as never);
+
+    expect(randomRuntime.resolve).toHaveBeenCalledWith(
+      { target: "fanza_doujin", keyword: "ロリ" },
+      interaction,
+      true,
+    );
+  });
+
+  it("routes /random with no options to the random runtime with a null target and empty keyword", async () => {
+    const randomRuntime = { resolve: vi.fn().mockResolvedValue(undefined) };
+    const interaction = createMockInteraction({ commandName: "random", nsfw: true });
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: randomRuntime as never,
+    });
+
+    await handler(interaction as never);
+
+    expect(randomRuntime.resolve).toHaveBeenCalledWith(
+      { target: null, keyword: "" },
+      interaction,
+      true,
+    );
+  });
+
   it("routes search: button interactions to the search runtime and ignores others", async () => {
     const searchRuntime = { resolve: vi.fn(), handleButton: vi.fn().mockResolvedValue(undefined) };
     const handler = createInteractionHandler({
       previewRuntime: { resolve: vi.fn() } as never,
       searchRuntime: searchRuntime as never,
+      randomRuntime: { resolve: vi.fn() } as never,
     });
 
     const searchButton = createMockButtonInteraction("search:token-1:next");
@@ -233,5 +280,22 @@ describe("createInteractionHandler", () => {
     const otherButton = createMockButtonInteraction("something-else:token-1");
     await handler(otherButton as never);
     expect(searchRuntime.handleButton).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes random: button interactions to the random runtime and ignores others", async () => {
+    const randomRuntime = { resolve: vi.fn(), handleButton: vi.fn().mockResolvedValue(undefined) };
+    const handler = createInteractionHandler({
+      previewRuntime: { resolve: vi.fn() } as never,
+      searchRuntime: { resolve: vi.fn(), handleButton: vi.fn() } as never,
+      randomRuntime: randomRuntime as never,
+    });
+
+    const randomButton = createMockButtonInteraction("random:token-1:next");
+    await handler(randomButton as never);
+    expect(randomRuntime.handleButton).toHaveBeenCalledWith(randomButton);
+
+    const otherButton = createMockButtonInteraction("something-else:token-1");
+    await handler(otherButton as never);
+    expect(randomRuntime.handleButton).toHaveBeenCalledTimes(1);
   });
 });
