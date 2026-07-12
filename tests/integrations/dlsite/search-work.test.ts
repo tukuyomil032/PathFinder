@@ -48,6 +48,20 @@ describe("buildSearchAjaxUrl", () => {
 
     expect(url).toContain(`keyword/${encodeURIComponent("剣と魔法/冒険")}/`);
   });
+
+  it("omits the keyword segment entirely when keyword is empty (browse-all for /random)", () => {
+    const url = buildSearchAjaxUrl({ ...baseQuery, keyword: "" }, 1);
+
+    expect(url).toBe("https://www.dlsite.com/maniax/fsr/ajax/=/language/jp/page/1/");
+  });
+
+  it("appends genre[0] when genreId is set without a keyword", () => {
+    const url = buildSearchAjaxUrl({ ...baseQuery, keyword: "", genreId: "207" }, 1);
+
+    expect(url).toBe(
+      "https://www.dlsite.com/maniax/fsr/ajax/=/language/jp/genre%5B0%5D/207/page/1/",
+    );
+  });
 });
 
 describe("buildCircleProfileUrl", () => {

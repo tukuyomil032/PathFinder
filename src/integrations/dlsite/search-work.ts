@@ -44,10 +44,22 @@ export function resolveDlsiteSurface(target: SearchTarget): DLSiteSurface {
  * DLsite の軽量検索AJAXエンドポイント（/fsr/ajax/=/...）のURLを組み立てる。
  * 通常の検索結果ページ（/fsr/=/...）と取得できる情報・HTML構造は同一だが、
  * ページ枠のUIが無い分レスポンスが軽量なためこちらを採用している。
+ *
+ * keywordが空文字列の場合（/random のブラウズ）はkeywordセグメント自体を省略する。
+ * 実機確認済み: keyword省略・genre[0]単体のいずれもAJAXエンドポイントでそのまま
+ * 全件/ジャンル別ブラウズとして機能する（page_info.countも通常通り取得できる）。
  */
 export function buildSearchAjaxUrl(query: SearchQuery, rawPage: number): string {
   const surface = resolveDlsiteSurface(query.target);
-  const segments = ["language", "jp", "keyword", encodeURIComponent(query.keyword)];
+  const segments = ["language", "jp"];
+
+  if (query.keyword) {
+    segments.push("keyword", encodeURIComponent(query.keyword));
+  }
+
+  if (query.genreId) {
+    segments.push("genre%5B0%5D", encodeURIComponent(query.genreId));
+  }
 
   if (query.sort) {
     segments.push("order%5B0%5D", SORT_PARAM[query.sort]);
